@@ -1,0 +1,34 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Gradle
+.gradle/
+build/
+
+# Local configuration
+local.properties
+*.iml
+
+# Android Studio / IDEA
+.idea/
+*.iml
+.DS_Store
+*.hprof
+
+# Keystore and secrets (do not commit)
+*.jks
+*.keystore
+keystore.properties
+
+# Logs and temp
+*.log
+*.tmp
+*.temp
+
+# Provisioning server (node)
+provisioning-server/node_modules/
+provisioning-server/.env
+provisioning-server/state.json

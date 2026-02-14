@@ -6,9 +6,11 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.novavpn.app.viewmodel.VpnViewModel
 
 @Composable
 fun NovaVpnApp(
+    vpnViewModel: VpnViewModel,
     tryConnect: () -> Unit,
     autoConnectRequested: Boolean = false
 ) {
@@ -20,6 +22,7 @@ fun NovaVpnApp(
     ) {
         composable("home") {
             HomeScreen(
+                viewModel = vpnViewModel,
                 tryConnect = tryConnect,
                 autoConnectRequested = autoConnectRequested,
                 onNavigateToSettings = { navController.navigate("settings") },

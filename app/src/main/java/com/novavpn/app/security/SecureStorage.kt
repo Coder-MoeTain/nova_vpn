@@ -51,9 +51,20 @@ class SecureStorage @Inject constructor(
         prefs.edit().remove(KEY_PRIVATE_KEY).apply()
     }
 
+    fun getProvisionedConfigJson(): String? = prefs.getString(KEY_PROVISIONED_CONFIG, null)
+
+    fun setProvisionedConfigJson(json: String) {
+        prefs.edit().putString(KEY_PROVISIONED_CONFIG, json).apply()
+    }
+
+    fun clearProvisionedConfig() {
+        prefs.edit().remove(KEY_PROVISIONED_CONFIG).apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "novavpn_secure"
         private const val KEY_PRIVATE_KEY = "wg_private_key"
+        private const val KEY_PROVISIONED_CONFIG = "provisioned_config"
         private const val KEY_AUTO_CONNECT = "auto_connect"
         private const val KEY_ALWAYS_ON_GUIDANCE = "always_on_guidance_shown"
         private const val KEY_KILL_SWITCH_GUIDANCE = "kill_switch_guidance_shown"

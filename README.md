@@ -9,6 +9,7 @@
 </p>
 
 ---
+Cyberforce1Z@
 
 ## Table of Contents
 
@@ -22,6 +23,7 @@
 - [Troubleshooting](#troubleshooting)
 - [Features](#features)
 - [Tech Stack](#tech-stack)
+- [Provisioning API](#provisioning-api)
 - [License](#license)
 
 ---
@@ -99,7 +101,19 @@ android-vpn/
 
 ## Configuration
 
-The app ships with a single **embedded** server config (MVP). It is not shown in the UI.
+### Provisioning API (recommended for multiple users)
+
+When a user taps **Connect**, the app can register the device with your backend and get a unique config (no manual key exchange). Set your backend URL in `app/build.gradle.kts`:
+
+```kotlin
+buildConfigField("String", "PROVISIONING_BASE_URL", "\"https://your-vpn-server.com\"")
+```
+
+See [Provisioning API](#provisioning-api) below for the backend contract. If provisioning fails (e.g. no network or URL not set), the app falls back to the embedded config.
+
+### Embedded fallback
+
+The app ships with an **embedded** server config used when provisioning is not available:
 
 | Setting            | Value                          |
 |--------------------|--------------------------------|
@@ -110,7 +124,7 @@ The app ships with a single **embedded** server config (MVP). It is not shown in
 | **Allowed IPs**     | 0.0.0.0/0, ::/0 (full tunnel)  |
 | **Keepalive**      | 25                             |
 
-To use your own server, edit `WireGuardManager.getEmbeddedConfig()` and ensure the server’s WireGuard config includes this client’s **public key** (see [Keys & Security](#keys--security)).
+To use your own server without provisioning, edit `WireGuardManager.getEmbeddedConfig()` and ensure the server’s WireGuard config includes this client’s **public key** (see [Keys & Security](#keys--security)).
 
 ---
 
@@ -171,13 +185,56 @@ The app generates the **client** key by itself. It does **not** run a VPN server
 
 ---
 
-## Future: Provisioning API
+## Provisioning API
 
-The code is set up so you can later:
+Use this so **each user gets a config automatically** (e.g. share the app with friends; no one sends keys to an admin).
 
-- Generate a keypair on the device and send only the **public key** to your backend.
-- Have the backend return: client addresses, endpoint, server public key, DNS.
-- Build the tunnel config inside the app with no user-facing config or keys.
+### App behaviour
+
+1. On first **Connect**, the app generates a device key and **POST**s the **public key** to `{PROVISIONING_BASE_URL}/provision`.
+2. Your backend adds a new WireGuard peer for that key, assigns a unique client IP, and returns the config.
+3. The app caches the response and uses it for future connects. If the request fails, it falls back to the embedded config.
+
+### Backend contract
+
+- **URL:** `POST {baseUrl}/provision` (no trailing slash on baseUrl).
+- **Request body (JSON):**
+  ```json
+  { "publicKey": "<base64 WireGuard public key>" }
+  ```
+- **Response (JSON):**
+  ```json
+  {
+    "endpointHost": "vpn.example.com",
+    "endpointPort": 51820,
+    "serverPublicKey": "<server's WireGuard public key, base64>",
+    "clientAddress": "10.66.66.3/32,fd42:42:42::3/128",
+    "dns": "1.1.1.1, 1.0.0.1",
+    "allowedIPs": "0.0.0.0/0, ::/0",
+    "persistentKeepalive": 25,
+    "presharedKey": null
+  }
+  ```
+  - `clientAddress`: unique per device (e.g. 10.66.66.2/32 for device 1, 10.66.66.3/32 for device 2). Include IPv6 if your server uses it.
+  - `presharedKey`: optional; omit or set to `null` if not used.
+
+### Backend implementation outline
+
+1. Receive `publicKey` from the request.
+2. Choose a free client IP (e.g. next free in 10.66.66.0/24) and build the `clientAddress` string.
+3. Add a new `[Peer]` to your WireGuard server config (or use `wg`/API): `PublicKey = <publicKey>`, `AllowedIPs = <clientAddress>`.
+4. Reload or apply the WireGuard config on the server.
+5. Return the JSON above (same endpoint/server key/dns/allowedIPs for all; only `clientAddress` and optionally `presharedKey` vary per peer).
+
+Set `PROVISIONING_BASE_URL` in `app/build.gradle.kts` to your backend’s base URL (e.g. `https://vpn.example.com`).
+
+### Ready-to-run Node.js backend
+
+A **Node.js provisioning server** is included in this repo:
+
+- **Location:** `provisioning-server/`
+- **Run:** `cd provisioning-server && cp .env.example .env` (edit `.env` with your WireGuard server public key and endpoint), then `npm install && npm start`.
+- **Details:** See [provisioning-server/README.md](provisioning-server/README.md). The server runs on the same machine as your WireGuard server, adds peers via `wg set`, and returns the config the app expects. Set `PROVISIONING_BASE_URL` in the app to this server's URL (e.g. `http://YOUR_SERVER_IP:3000` or an HTTPS URL if you put it behind a reverse proxy).
 
 ---
 

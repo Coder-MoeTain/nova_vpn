@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NovaVPN Provisioning</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>NovaVPN Provisioning</h1>
+      <p class="subtitle">WireGuard peer management</p>
+    </header>
+
+    <section class="summary">
+      <div class="card">
+        <span class="label">Next client IP</span>
+        <span id="next-ip" class="value">—</span>
+      </div>
+      <div class="card">
+        <span class="label">Total peers</span>
+        <span id="total-peers" class="value">0</span>
+      </div>
+    </section>
+
+    <section class="peers-section">
+      <h2>Peers</h2>
+      <div id="error" class="error" hidden></div>
+      <div id="loading" class="loading">Loading…</div>
+      <table id="peers-table" class="peers-table" hidden>
+        <thead>
+          <tr>
+            <th>Public key</th>
+            <th>Client IP</th>
+            <th>Created</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="peers-body"></tbody>
+      </table>
+      <p id="empty" class="empty" hidden>No peers yet. Devices appear here when they use the app to connect.</p>
+    </section>
+
+    <footer>
+      <a href="/health" target="_blank">Health check</a>
+    </footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

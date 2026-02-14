@@ -4,7 +4,7 @@
             "outputFile": "com.novavpn.app-mergeDebugResources-71:/values-v18/values-v18.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\linuxer\\.gradle\\caches\\8.9\\transforms\\8941b29e425ff1a483f06c7b57b4adcc\\transformed\\appcompat-1.6.1\\res\\values-v18\\values-v18.xml",
+                    "source": "C:\\Users\\koko\\.gradle\\caches\\8.9\\transforms\\8941b29e425ff1a483f06c7b57b4adcc\\transformed\\appcompat-1.6.1\\res\\values-v18\\values-v18.xml",
                     "from": {
                         "startLines": "2",
                         "startColumns": "4",

@@ -399,20 +399,20 @@ public final class DaggerNovaVpnApplication_HiltComponents_SingletonC {
 
     @IdentifierNameString
     private static final class LazyClassKeyProvider {
-      static String com_novavpn_app_viewmodel_SettingsViewModel = "com.novavpn.app.viewmodel.SettingsViewModel";
-
       static String com_novavpn_app_viewmodel_VpnViewModel = "com.novavpn.app.viewmodel.VpnViewModel";
 
       static String com_novavpn_app_viewmodel_LogsViewModel = "com.novavpn.app.viewmodel.LogsViewModel";
 
-      @KeepFieldType
-      SettingsViewModel com_novavpn_app_viewmodel_SettingsViewModel2;
+      static String com_novavpn_app_viewmodel_SettingsViewModel = "com.novavpn.app.viewmodel.SettingsViewModel";
 
       @KeepFieldType
       VpnViewModel com_novavpn_app_viewmodel_VpnViewModel2;
 
       @KeepFieldType
       LogsViewModel com_novavpn_app_viewmodel_LogsViewModel2;
+
+      @KeepFieldType
+      SettingsViewModel com_novavpn_app_viewmodel_SettingsViewModel2;
     }
   }
 
@@ -459,17 +459,17 @@ public final class DaggerNovaVpnApplication_HiltComponents_SingletonC {
 
     @IdentifierNameString
     private static final class LazyClassKeyProvider {
-      static String com_novavpn_app_viewmodel_SettingsViewModel = "com.novavpn.app.viewmodel.SettingsViewModel";
-
       static String com_novavpn_app_viewmodel_VpnViewModel = "com.novavpn.app.viewmodel.VpnViewModel";
+
+      static String com_novavpn_app_viewmodel_SettingsViewModel = "com.novavpn.app.viewmodel.SettingsViewModel";
 
       static String com_novavpn_app_viewmodel_LogsViewModel = "com.novavpn.app.viewmodel.LogsViewModel";
 
       @KeepFieldType
-      SettingsViewModel com_novavpn_app_viewmodel_SettingsViewModel2;
+      VpnViewModel com_novavpn_app_viewmodel_VpnViewModel2;
 
       @KeepFieldType
-      VpnViewModel com_novavpn_app_viewmodel_VpnViewModel2;
+      SettingsViewModel com_novavpn_app_viewmodel_SettingsViewModel2;
 
       @KeepFieldType
       LogsViewModel com_novavpn_app_viewmodel_LogsViewModel2;
@@ -500,7 +500,7 @@ public final class DaggerNovaVpnApplication_HiltComponents_SingletonC {
           return (T) new LogsViewModel(singletonCImpl.logRepositoryProvider.get());
 
           case 1: // com.novavpn.app.viewmodel.SettingsViewModel 
-          return (T) new SettingsViewModel(singletonCImpl.secureStorageProvider.get());
+          return (T) new SettingsViewModel(singletonCImpl.secureStorageProvider.get(), singletonCImpl.wireGuardManagerProvider.get());
 
           case 2: // com.novavpn.app.viewmodel.VpnViewModel 
           return (T) new VpnViewModel(singletonCImpl.wireGuardManagerProvider.get());

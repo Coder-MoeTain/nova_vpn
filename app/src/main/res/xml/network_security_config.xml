@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Allow HTTP (cleartext) to the provisioning server; Android 9+ blocks it by default. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">76.13.189.118</domain>
+        <!-- Add your provisioning host if different, e.g. <domain includeSubdomains="true">192.168.1.100</domain> -->
+    </domain-config>
+</network-security-config>

@@ -54,21 +54,21 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.hilt.navigation.compose.hiltViewModel
 import com.novavpn.app.viewmodel.ConnectionState
 import com.novavpn.app.viewmodel.VpnUiState
 
 @Composable
 fun HomeScreen(
+    viewModel: com.novavpn.app.viewmodel.VpnViewModel,
     tryConnect: () -> Unit,
     autoConnectRequested: Boolean,
     onNavigateToSettings: () -> Unit,
-    onNavigateToLogs: () -> Unit,
-    viewModel: com.novavpn.app.viewmodel.VpnViewModel = hiltViewModel()
+    onNavigateToLogs: () -> Unit
 ) {
     val state by viewModel.state.collectAsState()
 
@@ -266,14 +266,82 @@ private fun ConnectionCard(
                         }
                     }
                     is ConnectionState.Connected -> {
+                        val flowTransition = rememberInfiniteTransition(label = "dataFlow")
+                        val flowRotation by flowTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 360f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(4000, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "flowRotation"
+                        )
+                        val flowRotationReverse by flowTransition.animateFloat(
+                            initialValue = 360f,
+                            targetValue = 0f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(6000, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "flowRotationRev"
+                        )
+                        val dashPhase by flowTransition.animateFloat(
+                            initialValue = 0f,
+                            targetValue = 35f,
+                            animationSpec = infiniteRepeatable(
+                                animation = tween(1500, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            ),
+                            label = "dashPhase"
+                        )
+                        val primaryColor = MaterialTheme.colorScheme.primary
                         Box(
-                            modifier = Modifier
-                                .size(120.dp)
-                                .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                            contentAlignment = Alignment.Center
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.size(140.dp)
                         ) {
-                            Text("ON", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Canvas(
+                                modifier = Modifier
+                                    .size(140.dp)
+                                    .rotate(flowRotation)
+                            ) {
+                                drawCircle(
+                                    color = primaryColor.copy(alpha = 0.5f),
+                                    radius = size.minDimension / 2f - 2.dp.toPx(),
+                                    style = Stroke(
+                                        width = 2.5.dp.toPx(),
+                                        pathEffect = PathEffect.dashPathEffect(
+                                            floatArrayOf(12.dp.toPx(), 18.dp.toPx()),
+                                            phase = dashPhase
+                                        )
+                                    )
+                                )
+                            }
+                            Canvas(
+                                modifier = Modifier
+                                    .size(128.dp)
+                                    .rotate(flowRotationReverse)
+                            ) {
+                                drawCircle(
+                                    color = primaryColor.copy(alpha = 0.35f),
+                                    radius = size.minDimension / 2f - 2.dp.toPx(),
+                                    style = Stroke(
+                                        width = 2.dp.toPx(),
+                                        pathEffect = PathEffect.dashPathEffect(
+                                            floatArrayOf(8.dp.toPx(), 14.dp.toPx()),
+                                            phase = dashPhase * 0.7f
+                                        )
+                                    )
+                                )
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .size(120.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("ON", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            }
                         }
                     }
                     is ConnectionState.Error -> {
@@ -311,7 +379,13 @@ private fun ConnectionCard(
             Spacer(modifier = Modifier.height(24.dp))
             Text(
                 when (state.connectionState) {
-                    is ConnectionState.Connecting -> "Connecting…"
+                    is ConnectionState.Connecting -> {
+                        val remaining = state.connectingTimeoutRemainingSeconds
+                        if (remaining != null && remaining > 0)
+                            "Connecting… (${remaining}s)"
+                        else
+                            "Connecting…"
+                    }
                     is ConnectionState.Connected -> "Connected"
                     is ConnectionState.Disconnecting -> "Disconnecting…"
                     is ConnectionState.Error -> (state.connectionState as ConnectionState.Error).message
@@ -320,6 +394,14 @@ private fun ConnectionCard(
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
+            if (state.connectionState is ConnectionState.Connecting && state.connectingTimeoutRemainingSeconds != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    "Timeout in ${state.connectingTimeoutRemainingSeconds}s — check server reachability",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                )
+            }
             if (state.lastError != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -327,6 +409,14 @@ private fun ConnectionCard(
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error
                 )
+                state.errorHint?.let { hint ->
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        hint,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                    )
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 androidx.compose.material3.TextButton(onClick = onClearError) {
                     Text("Dismiss")

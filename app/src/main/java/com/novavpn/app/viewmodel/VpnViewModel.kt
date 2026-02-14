@@ -27,6 +27,10 @@ data class VpnUiState(
     val connectionTimeSeconds: Long = 0L,
     val publicIp: String? = null,
     val lastError: String? = null,
+    /** When connecting, seconds until timeout (e.g. 20, 19, …). Null when not connecting. */
+    val connectingTimeoutRemainingSeconds: Int? = null,
+    /** Optional hint shown below the error (e.g. what to check). */
+    val errorHint: String? = null,
     val statsRxBytes: Long = 0L,
     val statsTxBytes: Long = 0L
 )
@@ -51,11 +55,12 @@ class VpnViewModel @Inject constructor(
         viewModelScope.launch {
             wireGuardManager.tunnelState.collect { tunnelState ->
                 _state.update { current ->
-                    val wasConnectedOrConnecting = current.connectionState is ConnectionState.Connected ||
-                        current.connectionState is ConnectionState.Connecting
-                    val connectionDropped = tunnelState == Tunnel.State.DOWN && wasConnectedOrConnecting
+                    val wasConnected = current.connectionState is ConnectionState.Connected
+                    val connectionDropped = tunnelState == Tunnel.State.DOWN && wasConnected
                     val newConnectionState = when {
                         connectionDropped -> ConnectionState.Error("Connection dropped")
+                        current.connectionState is ConnectionState.Connecting && tunnelState == Tunnel.State.DOWN ->
+                            current.connectionState
                         else -> tunnelState.toConnectionState()
                     }
                     val newError = when {
@@ -131,22 +136,39 @@ class VpnViewModel @Inject constructor(
         }
     }
 
-    private val connectingTimeoutMs = 20_000L
+    private val connectingTimeoutMs = 45_000L
+    private val connectingTimeoutSeconds = (connectingTimeoutMs / 1000).toInt()
 
     fun connect() {
         viewModelScope.launch {
             Logger.d("connect: setting state Connecting")
             _state.update {
-                it.copy(connectionState = ConnectionState.Connecting, lastError = null)
+                it.copy(
+                    connectionState = ConnectionState.Connecting,
+                    lastError = null,
+                    errorHint = null,
+                    connectingTimeoutRemainingSeconds = connectingTimeoutSeconds
+                )
             }
             val timeoutJob = launch {
-                delay(connectingTimeoutMs)
+                var remaining = connectingTimeoutSeconds
+                while (remaining > 0) {
+                    delay(1_000)
+                    remaining--
+                    _state.update { current ->
+                        if (current.connectionState == ConnectionState.Connecting)
+                            current.copy(connectingTimeoutRemainingSeconds = remaining)
+                        else current
+                    }
+                }
                 _state.update { current ->
                     if (current.connectionState == ConnectionState.Connecting) {
                         Logger.w("connect: timeout reached while still connecting")
                         current.copy(
                             connectionState = ConnectionState.Error("Connection timed out"),
-                            lastError = "Connection timed out"
+                            lastError = "Connection timed out",
+                            errorHint = "Open the WireGuard UDP port on the server firewall and ensure the device key is on the server. Slow networks may need more time—try again.",
+                            connectingTimeoutRemainingSeconds = null
                         )
                     } else current
                 }
@@ -161,12 +183,33 @@ class VpnViewModel @Inject constructor(
                     wireGuardManager.setStateUp(config)
                 }
                 Logger.d("connect: setStateUp returned")
+                timeoutJob.cancel()
+                withContext(Dispatchers.Main.immediate) {
+                    connectionStartTime = System.currentTimeMillis()
+                    _state.update {
+                        it.copy(
+                            connectionState = ConnectionState.Connected,
+                            connectionTimeSeconds = 0L,
+                            lastError = null,
+                            errorHint = null,
+                            connectingTimeoutRemainingSeconds = null
+                        )
+                    }
+                    startTimer()
+                    fetchPublicIp()
+                    updateStats()
+                }
             } catch (e: Exception) {
                 timeoutJob.cancel()
                 Logger.e(e, "Connect failed: ${e.javaClass.simpleName}: ${e.message}")
-                val msg = userFriendlyMessage(e)
+                val (msg, hint) = userFriendlyMessageAndHint(e)
                 _state.update {
-                    it.copy(connectionState = ConnectionState.Error(msg), lastError = msg)
+                    it.copy(
+                        connectionState = ConnectionState.Error(msg),
+                        lastError = msg,
+                        errorHint = hint,
+                        connectingTimeoutRemainingSeconds = null
+                    )
                 }
             }
         }
@@ -176,6 +219,19 @@ class VpnViewModel @Inject constructor(
         viewModelScope.launch {
             _state.update { it.copy(connectionState = ConnectionState.Disconnecting) }
             wireGuardManager.setStateDown()
+            // Update UI immediately; do not rely on library callback or getState()
+            withContext(Dispatchers.Main.immediate) {
+                stopTimer()
+                _state.update {
+                    it.copy(
+                        connectionState = ConnectionState.Disconnected,
+                        connectionTimeSeconds = 0L,
+                        statsRxBytes = 0L,
+                        statsTxBytes = 0L,
+                        publicIp = null
+                    )
+                }
+            }
         }
     }
 
@@ -199,14 +255,20 @@ class VpnViewModel @Inject constructor(
         }
     }
 
-    private fun userFriendlyMessage(e: Throwable): String {
+    private fun userFriendlyMessageAndHint(e: Throwable): Pair<String, String?> {
         val msg = e.message?.lowercase() ?: ""
         return when {
-            msg.contains("permission") || msg.contains("vpn") -> "VPN permission denied"
-            msg.contains("handshake") -> "Handshake failed"
-            msg.contains("network") || msg.contains("unreachable") -> "No internet or server unreachable"
-            msg.contains("timeout") -> "Connection timed out"
-            else -> e.message ?: "Connection failed"
+            msg.contains("permission") || msg.contains("vpn") ->
+                "VPN permission denied" to "Grant VPN permission when prompted."
+            msg.contains("handshake") ->
+                "Handshake failed" to "Check that the server has this device's public key."
+            msg.contains("network") || msg.contains("unreachable") || msg.contains("failed to connect") ->
+                "Server unreachable" to "Check internet and that the VPN server is up and reachable."
+            msg.contains("timeout") || msg.contains("timed out") ->
+                "Connection timed out" to "Check that the VPN server is reachable and your device's key is on the server."
+            msg.contains("provision") || msg.contains("api") || msg.contains("connection refused") ->
+                "Provisioning failed" to "Run the provisioning server on the same machine as WireGuard and set PROVISIONING_BASE_URL in app/build.gradle.kts to that server's URL (e.g. http://SERVER_IP:3000)."
+            else -> (e.message ?: "Connection failed") to null
         }
     }
 }

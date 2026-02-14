@@ -49,6 +49,7 @@ class MainActivity : ComponentActivity() {
             NovaVpnTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     NovaVpnApp(
+                        vpnViewModel = vpnViewModel,
                         tryConnect = tryConnect,
                         autoConnectRequested = intent?.getBooleanExtra(BootReceiver.EXTRA_AUTO_CONNECT, false) == true
                     )

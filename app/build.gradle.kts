@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.dagger.hilt.android")
     kotlin("kapt")
 }
@@ -16,6 +17,13 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         multiDexEnabled = true
+        // Phone must reach this URL. Use your provisioning server's IP (same network as phone) e.g. "http://192.168.1.100:3000"
+        // Provisioning server must run on the SAME machine as WireGuard so peers are actually added.
+        buildConfigField("String", "PROVISIONING_BASE_URL", "\"http://76.13.189.118:3000\"")
+    }
+    buildFeatures {
+        compose = true
+        buildConfig = true
     }
     buildTypes {
         release {
@@ -33,9 +41,6 @@ android {
     }
     kotlinOptions {
         jvmTarget = "17"
-    }
-    buildFeatures {
-        compose = true
     }
 }
 

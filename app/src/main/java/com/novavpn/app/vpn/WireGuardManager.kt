@@ -10,6 +10,7 @@ import com.wireguard.android.backend.Backend
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
+import com.wireguard.config.Interface
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.sync.Mutex
@@ -44,23 +45,45 @@ class WireGuardManager @Inject constructor(
         }
     }
 
+    /**
+     * Embedded config for server 194.31.53.236; uses fixed client key and preshared key from config.
+     */
     fun getEmbeddedConfig(): EmbeddedConfig = EmbeddedConfig(
-        endpointHost = "194.31.53.236",
-        endpointPort = 64120,
-        serverPublicKey = "sa3Ms/7MWWQCwe5sGujruPPpStV5wcsPipfV6UN5K0k=",
+        endpointHost = "76.13.189.118",
+        endpointPort = 64288,
+        serverPublicKey = "PBoRD+7wiog1JQmMCmraHA+DoWLMpdlPxD/LcHmeLwo=",
         clientAddress = "10.66.66.2/32,fd42:42:42::2/128",
         dns = "1.1.1.1, 1.0.0.1",
         allowedIPs = "0.0.0.0/0, ::/0",
         persistentKeepalive = 25,
-        clientPrivateKey = "0E2lrYhKhsaQ1lRrQZkUwvGXKwHi7uqYg4eWjE0HEmo=",
-        presharedKey = "X9waWlDtGBtx4TjvLtw765JMaufQpLS9JdyfKJ+QlHU="
+        clientPrivateKey = "YNye/ELBtadYI2sDDEl/9wpJch8OOW8C1pPrUrKNl3Q=",
+        presharedKey = "PqQ0uPVXrHlN/tD0N6ZFedm0Tju04Ue4arylyyYiYLg="
     )
 
-    suspend fun buildConfig(): Config {
+    /**
+     * Builds tunnel config from embedded config only (no provisioning).
+     * Uses single private key from embedded config.
+     */
+    suspend fun buildConfig(): Config = mutex.withLock {
         val embedded = getEmbeddedConfig()
-        val privateKey = embedded.clientPrivateKey ?: getOrCreatePrivateKey()
-        Logger.d("buildConfig: using ${if (embedded.clientPrivateKey != null) "embedded" else "stored/generated"} client key")
-        return ConfigBuilder.build(embedded, privateKey)
+        val keyToUse = embedded.clientPrivateKey ?: getOrCreatePrivateKey()
+        Logger.d("buildConfig: endpoint=${embedded.endpointHost}:${embedded.endpointPort} (embedded only)")
+        ConfigBuilder.build(embedded, keyToUse)
+    }
+
+    /**
+     * Returns the public key (base64) for the current tunnel identity (embedded config key when set).
+     */
+    suspend fun getPublicKeyBase64(): String? = mutex.withLock {
+        val embedded = getEmbeddedConfig()
+        val privateKey = embedded.clientPrivateKey ?: secureStorage.getPrivateKey() ?: return@withLock null
+        return@withLock try {
+            val iface = Interface.Builder().parsePrivateKey(privateKey).build()
+            iface.keyPair.publicKey.toBase64()
+        } catch (e: Exception) {
+            Logger.e(e, "getPublicKeyBase64 failed")
+            null
+        }
     }
 
     fun setStateUp(config: Config) {

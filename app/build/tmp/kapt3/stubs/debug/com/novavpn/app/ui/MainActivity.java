@@ -5,7 +5,6 @@ import androidx.activity.ComponentActivity;
 import com.novavpn.app.util.Logger;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.compose.ui.Modifier;
-import com.novavpn.app.ui.theme.NovaVpnTheme;
 import com.novavpn.app.vpn.BootReceiver;
 import com.novavpn.app.viewmodel.VpnViewModel;
 import com.wireguard.android.backend.GoBackend;
