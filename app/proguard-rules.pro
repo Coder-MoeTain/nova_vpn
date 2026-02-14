@@ -1,0 +1,3 @@
+-keep class com.wireguard.** { *; }
+-keep class com.novavpn.app.vpn.** { *; }
+-dontwarn com.wireguard.**

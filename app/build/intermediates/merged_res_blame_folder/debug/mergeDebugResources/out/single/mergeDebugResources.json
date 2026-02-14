@@ -1,0 +1,22 @@
+[
+    {
+        "merged": "com.novavpn.app-debug-73:/raw_lottie_connected.json.flat",
+        "source": "com.novavpn.app-main-75:/raw/lottie_connected.json"
+    },
+    {
+        "merged": "com.novavpn.app-debug-73:/drawable_ic_launcher_round.xml.flat",
+        "source": "com.novavpn.app-main-75:/drawable/ic_launcher_round.xml"
+    },
+    {
+        "merged": "com.novavpn.app-debug-73:/drawable_ic_vpn_tile.xml.flat",
+        "source": "com.novavpn.app-main-75:/drawable/ic_vpn_tile.xml"
+    },
+    {
+        "merged": "com.novavpn.app-debug-73:/raw_lottie_connecting.json.flat",
+        "source": "com.novavpn.app-main-75:/raw/lottie_connecting.json"
+    },
+    {
+        "merged": "com.novavpn.app-debug-73:/drawable_ic_launcher.xml.flat",
+        "source": "com.novavpn.app-main-75:/drawable/ic_launcher.xml"
+    }
+]
