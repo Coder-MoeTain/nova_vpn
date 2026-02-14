@@ -22,7 +22,7 @@ local.properties
 *.jks
 *.keystore
 keystore.properties
-*.hprof
+
 # Logs and temp
 *.log
 *.tmp
