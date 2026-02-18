@@ -1,26 +1,30 @@
 [
     {
-        "merged": "C:\\Users\\koko\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\drawable_ic_launcher.xml.flat",
-        "source": "C:\\Users\\koko\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\drawable\\ic_launcher.xml"
+        "merged": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\raw_lottie_connecting.json.flat",
+        "source": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\raw\\lottie_connecting.json"
     },
     {
-        "merged": "C:\\Users\\koko\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\drawable_ic_vpn_tile.xml.flat",
-        "source": "C:\\Users\\koko\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\drawable\\ic_vpn_tile.xml"
+        "merged": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\drawable_ic_launcher_round.xml.flat",
+        "source": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\drawable\\ic_launcher_round.xml"
     },
     {
-        "merged": "com.novavpn.app-debug-73:/xml_network_security_config.xml.flat",
-        "source": "com.novavpn.app-main-75:/xml/network_security_config.xml"
+        "merged": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\raw_lottie_connected.json.flat",
+        "source": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\raw\\lottie_connected.json"
     },
     {
-        "merged": "C:\\Users\\koko\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\raw_lottie_connecting.json.flat",
-        "source": "C:\\Users\\koko\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\raw\\lottie_connecting.json"
+        "merged": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\drawable_ic_launcher.xml.flat",
+        "source": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\drawable\\ic_launcher.xml"
     },
     {
-        "merged": "C:\\Users\\koko\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\drawable_ic_launcher_round.xml.flat",
-        "source": "C:\\Users\\koko\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\drawable\\ic_launcher_round.xml"
+        "merged": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\xml_network_security_config.xml.flat",
+        "source": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\xml\\network_security_config.xml"
     },
     {
-        "merged": "C:\\Users\\koko\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\raw_lottie_connected.json.flat",
-        "source": "C:\\Users\\koko\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\raw\\lottie_connected.json"
+        "merged": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-debug-73:\\drawable_ic_vpn_tile.xml.flat",
+        "source": "C:\\Users\\linuxer\\.gradle\\daemon\\8.9\\com.novavpn.app-main-75:\\drawable\\ic_vpn_tile.xml"
+    },
+    {
+        "merged": "com.novavpn.app-debug-73:/xml_file_paths.xml.flat",
+        "source": "com.novavpn.app-main-75:/xml/file_paths.xml"
     }
 ]

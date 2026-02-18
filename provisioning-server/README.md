@@ -2,11 +2,27 @@
 
 Node.js backend for the NovaVPN app. When a user taps **Connect**, the app sends the device's public key to this server; the server adds a new WireGuard peer and returns the config so the app can connect without any manual key exchange.
 
+**→ Step-by-step server setup:** [SERVER_SETUP.md](SERVER_SETUP.md) (WireGuard + OpenVPN installation and `.env`.)  
+**→ OpenVPN server already installed?** [OPENVPN_NEXT_STEPS.md](OPENVPN_NEXT_STEPS.md) (what to do next.)
+
+### One-command WireGuard install (SSH)
+
+From your **local machine**, copy the install script to the server and run it in your SSH session:
+
+```bash
+# From your PC (replace root@srv1376664 with your server)
+scp provisioning-server/scripts/install-wireguard-server.sh root@srv1376664:/tmp/
+ssh root@srv1376664 'bash /tmp/install-wireguard-server.sh'
+```
+
+Or paste the script contents into an SSH terminal and run `sudo bash` (e.g. create the file with nano, paste, then `sudo bash install-wireguard-server.sh`). The script installs WireGuard, creates keys, configures `wg0` (port 64288, subnet 10.66.66.0/24), enables forwarding and NAT, and prints the server public key for your `.env`.
+
 ## Requirements
 
 - **Node.js 18+**
 - This server must run on the **same machine** as your WireGuard server (so it can run `wg set`), or use config-file mode and reload WireGuard yourself.
 - WireGuard installed and an interface (e.g. `wg0`) already set up with a working server config.
+- **Run as root** (or with `CAP_NET_ADMIN`) so that `wg set` can add/remove peers. Example: `sudo node server.js` or `sudo npm start`. If you see "Failed to add peer" / "Permission denied", the process does not have permission to run `wg`.
 
 ## Quick start
 
@@ -44,7 +60,7 @@ Node.js backend for the NovaVPN app. When a user taps **Connect**, the app sends
 | `WG_INTERFACE` | WireGuard interface name (default `wg0`). |
 | `WG_NETWORK_IPv4` | First three octets for client IPs (e.g. `10.66.66` → 10.66.66.2, 10.66.66.3, …). |
 | `WG_NETWORK_IPv6` | IPv6 prefix for clients (e.g. `fd42:42:42`). |
-| `WG_NEXT_CLIENT_INDEX` | Next client index (default 2 → 10.66.66.2). Increase if you already have peers. |
+| `WG_NEXT_CLIENT_INDEX` | Next client index (default 3 → first new peer gets 10.66.66.3). **If you already have a peer** (e.g. 10.66.66.2 from manual config), set this to 3 or higher so new provisions get .3, .4, etc., and do not conflict. |
 | `WG_DNS` | DNS servers returned to the app (e.g. `1.1.1.1, 1.0.0.1`). |
 | `WG_ALLOWED_IPS` | AllowedIPs for the tunnel (default full tunnel). |
 | `WG_PERSISTENT_KEEPALIVE` | Keepalive seconds (default 25). |
@@ -81,6 +97,22 @@ If you set `ADMIN_PASSWORD` in `.env`, the UI and the management API require HTT
 
 - **DELETE /api/peers** (optional auth)  
   Body: `{ "publicKey": "<base64>" }` — revokes the peer (removes from WireGuard and state).
+
+## OpenVPN provisioning (optional)
+
+To support **OpenVPN** in the app (multi-device: one config per device):
+
+1. Set in `.env`:
+   - `OPENVPN_ENABLED=1`
+   - `OPENVPN_SERVER_HOST` — your OpenVPN server address (e.g. same as `WG_ENDPOINT_HOST`)
+   - `OPENVPN_SERVER_PORT` — OpenVPN port (e.g. `1194`)
+   - `OPENVPN_EASYRSA_DIR` — path to easy-rsa (e.g. `/etc/openvpn/easy-rsa`)
+
+2. On the server: install OpenVPN and easy-rsa, run `easyrsa init-pki`, `easyrsa build-ca`, then start the OpenVPN server. The script `scripts/gen-openvpn-client.sh` will run `easyrsa build-client-full` for each new device.
+
+3. With `OPENVPN_ENABLED=1`, the server **skips** the WireGuard `wg show` check at startup (so you can run OpenVPN-only without WireGuard).
+
+4. **POST /provision-openvpn** (public, no body) returns `{ "config": "<inline .ovpn>" }`. The app uses this when the user selects **OpenVPN** in Settings and taps Connect; it then opens the config in an OpenVPN app (e.g. OpenVPN for Android).
 
 ## State
 

@@ -10,4 +10,5 @@ string notification_channel_vpn
 string notification_vpn_running
 string quick_tile_label
 style Theme.NovaVPN
+xml file_paths
 xml network_security_config

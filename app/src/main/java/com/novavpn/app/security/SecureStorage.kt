@@ -23,12 +23,6 @@ class SecureStorage @Inject constructor(
         EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
     )
 
-    fun getPrivateKey(): String? = prefs.getString(KEY_PRIVATE_KEY, null)
-
-    fun setPrivateKey(value: String) {
-        prefs.edit().putString(KEY_PRIVATE_KEY, value).apply()
-    }
-
     fun getAutoConnect(): Boolean = prefs.getBoolean(KEY_AUTO_CONNECT, false)
 
     fun setAutoConnect(value: Boolean) {
@@ -47,24 +41,45 @@ class SecureStorage @Inject constructor(
         prefs.edit().putBoolean(KEY_KILL_SWITCH_GUIDANCE, value).apply()
     }
 
-    fun clearPrivateKey() {
-        prefs.edit().remove(KEY_PRIVATE_KEY).apply()
+    fun getOpenVpnConfigCache(): String? = prefs.getString(KEY_OPENVPN_CONFIG_CACHE, null)
+
+    fun setOpenVpnConfigCache(config: String) {
+        prefs.edit().putString(KEY_OPENVPN_CONFIG_CACHE, config).apply()
     }
 
-    fun getProvisionedConfigJson(): String? = prefs.getString(KEY_PROVISIONED_CONFIG, null)
-
-    fun setProvisionedConfigJson(json: String) {
-        prefs.edit().putString(KEY_PROVISIONED_CONFIG, json).apply()
+    fun clearOpenVpnConfigCache() {
+        prefs.edit().remove(KEY_OPENVPN_CONFIG_CACHE).apply()
     }
 
-    fun clearProvisionedConfig() {
-        prefs.edit().remove(KEY_PROVISIONED_CONFIG).apply()
+    fun getWireGuardPrivateKeyBase64(): String? = prefs.getString(KEY_WG_PRIVATE_KEY, null)
+
+    fun setWireGuardPrivateKeyBase64(key: String) {
+        prefs.edit().putString(KEY_WG_PRIVATE_KEY, key).apply()
+    }
+
+    fun getWireGuardConfigJson(): String? = prefs.getString(KEY_WG_CONFIG_JSON, null)
+
+    fun setWireGuardConfigJson(json: String) {
+        prefs.edit().putString(KEY_WG_CONFIG_JSON, json).apply()
+    }
+
+    fun clearWireGuardConfig() {
+        prefs.edit().remove(KEY_WG_CONFIG_JSON).apply()
+    }
+
+    /** Clears WireGuard config and private key so the next connect will provision a new peer. */
+    fun clearAllWireGuard() {
+        prefs.edit()
+            .remove(KEY_WG_CONFIG_JSON)
+            .remove(KEY_WG_PRIVATE_KEY)
+            .apply()
     }
 
     companion object {
         private const val PREFS_NAME = "novavpn_secure"
-        private const val KEY_PRIVATE_KEY = "wg_private_key"
-        private const val KEY_PROVISIONED_CONFIG = "provisioned_config"
+        private const val KEY_OPENVPN_CONFIG_CACHE = "openvpn_config_cache"
+        private const val KEY_WG_PRIVATE_KEY = "wg_private_key_base64"
+        private const val KEY_WG_CONFIG_JSON = "wg_config_json"
         private const val KEY_AUTO_CONNECT = "auto_connect"
         private const val KEY_ALWAYS_ON_GUIDANCE = "always_on_guidance_shown"
         private const val KEY_KILL_SWITCH_GUIDANCE = "kill_switch_guidance_shown"

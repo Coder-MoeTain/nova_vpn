@@ -1,15 +1,16 @@
+# NovaVPN
+
 <p align="center">
   <strong>NovaVPN</strong>
 </p>
 <p align="center">
-  Android VPN app using WireGuard — one-tap connect, no config screens.
+  Android app with a full in-app VPN client using WireGuard.
 </p>
 <p align="center">
   <sub>Kotlin · Jetpack Compose · Material 3 · WireGuard</sub>
 </p>
 
 ---
-
 
 ## Table of Contents
 
@@ -18,7 +19,6 @@
 - [Getting Started](#getting-started)
 - [Project Structure](#project-structure)
 - [Configuration](#configuration)
-- [Keys & Security](#keys--security)
 - [Verifying the VPN](#verifying-the-vpn)
 - [Troubleshooting](#troubleshooting)
 - [Features](#features)
@@ -30,18 +30,19 @@
 
 ## About
 
-NovaVPN is a production-ready Android VPN client built on **WireGuard**. Users connect with a single tap; keys and config are managed inside the app. No external WireGuard app is required.
+NovaVPN is an Android app that **connects you to a VPN inside the app** using the **WireGuard** protocol. One tap: the app gets a unique key and config from your provisioning server and establishes the tunnel. No separate VPN app needed.
 
 - **Target:** Android 8+ (API 26+)
-- **Security:** Client private key stored in EncryptedSharedPreferences; no keys in logs
+- **In-app VPN:** Uses the official [WireGuard Android tunnel library](https://www.wireguard.com/embedding/) so the tunnel runs inside NovaVPN.
+- **Server:** The included Node.js provisioning server adds WireGuard peers and returns config; you run a WireGuard server (e.g. on the same host).
 
 ---
 
 ## Requirements
 
 - Android Studio (latest stable)
-- Android device with **API 26+** (VPN does not work on the emulator)
-- USB debugging enabled (for running from Android Studio)
+- Android device with **API 26+**
+- A **provisioning server** (included under `provisioning-server/`) and a **WireGuard server** (see provisioning-server README)
 
 ---
 
@@ -51,47 +52,49 @@ NovaVPN is a production-ready Android VPN client built on **WireGuard**. Users c
 
 ```bash
 git clone <your-repo-url>
-cd android-vpn
+cd nova_vpn
 ```
 
-Open the `android-vpn` folder in Android Studio and let Gradle sync.
+Open the project in Android Studio and let Gradle sync.
 
-### 2. Gradle wrapper (if missing)
+### 2. Set the provisioning server URL
 
-If there is no `gradlew` / `gradlew.bat`:
+In `app/build.gradle.kts`, set your server’s URL:
 
-- **Android Studio:** File → Settings → Build → Gradle → use project Gradle
-- **Terminal:** `gradle wrapper --gradle-version 8.9`
+```kotlin
+buildConfigField("String", "PROVISIONING_BASE_URL", "\"http://YOUR_SERVER_IP:3000\"")
+```
 
-### 3. Run on device
+### 3. Run the provisioning server and WireGuard
 
-1. Connect an Android device with USB debugging enabled.
-2. **Run → Run 'app'** (or click the Run button).
-3. On first launch, grant **VPN** permission when prompted.
-4. Tap **Connect** — the app uses an embedded server config (see [Configuration](#configuration)).
+See [provisioning-server/README.md](provisioning-server/README.md). The server must have **WireGuard** set up and respond to `POST /provision` with a WireGuard config (endpoint, server public key, client address, DNS, etc.). The app sends its public key and receives the config.
+
+### 4. Run the app on device
+
+1. Run the NovaVPN app from Android Studio.
+2. Tap **Connect** — grant VPN permission if prompted, then the app will provision (if needed) and establish the WireGuard tunnel.
+3. Tap **Disconnect** to bring the tunnel down.
 
 ---
 
 ## Project Structure
 
 ```
-android-vpn/
+nova_vpn/
 ├── app/
 │   ├── build.gradle.kts
 │   └── src/main/
 │       ├── AndroidManifest.xml
 │       ├── java/com/novavpn/app/
-│       │   ├── di/           # Hilt modules
-│       │   ├── data/         # Config, repositories
-│       │   ├── security/     # Key generation, secure storage
+│       │   ├── api/          # Provisioning API (WireGuard + legacy OpenVPN)
+│       │   ├── data/         # Repositories, models
+│       │   ├── security/     # Secure storage (keys, config cache)
 │       │   ├── ui/           # Compose screens, theme
 │       │   ├── util/         # Logger
 │       │   ├── viewmodel/    # VpnViewModel, Settings, Logs
-│       │   └── vpn/          # Tunnel, WireGuard, config builder
+│       │   └── vpn/          # NovaTunnel, WireGuard config, BootReceiver, VpnTileService
 │       └── res/
-│           ├── drawable/
-│           ├── raw/           # Lottie (optional)
-│           └── values/
+├── provisioning-server/      # Node.js WireGuard (and optional OpenVPN) provisioning
 ├── build.gradle.kts
 ├── settings.gradle.kts
 └── README.md
@@ -101,50 +104,14 @@ android-vpn/
 
 ## Configuration
 
-### Provisioning API (recommended for multiple users)
-
-When a user taps **Connect**, the app can register the device with your backend and get a unique config (no manual key exchange). Set your backend URL in `app/build.gradle.kts`:
-
-```kotlin
-buildConfigField("String", "PROVISIONING_BASE_URL", "\"https://your-vpn-server.com\"")
-```
-
-See [Provisioning API](#provisioning-api) below for the backend contract. If provisioning fails (e.g. no network or URL not set), the app falls back to the embedded config.
-
-### Embedded fallback
-
-The app ships with an **embedded** server config used when provisioning is not available:
-
-| Setting            | Value                          |
-|--------------------|--------------------------------|
-| **Endpoint**       | 194.31.53.236:64120 (UDP)      |
-| **Server public key** | In code (see `WireGuardManager`) |
-| **Client addresses**  | 10.66.66.2/32, fd42:42:42::2/128 |
-| **DNS**            | 1.1.1.1, 1.0.0.1               |
-| **Allowed IPs**     | 0.0.0.0/0, ::/0 (full tunnel)  |
-| **Keepalive**      | 25                             |
-
-To use your own server without provisioning, edit `WireGuardManager.getEmbeddedConfig()` and ensure the server’s WireGuard config includes this client’s **public key** (see [Keys & Security](#keys--security)).
-
----
-
-## Keys & Security
-
-| Key                         | Generated by   | Where it lives                          |
-|----------------------------|----------------|-----------------------------------------|
-| **Client private key**     | **App** (first run) | Device only (EncryptedSharedPreferences) |
-| **Client public key**       | Derived from private key | Must be added on the **server** config   |
-| **Server private key**     | Not by the app | On the VPN server only                  |
-| **Server public key**      | On the server  | In app config (`getEmbeddedConfig()`)   |
-
-The app generates the **client** key by itself. It does **not** run a VPN server; it only connects to a remote WireGuard server. The tunnel works only if that server is up and has this device’s **client public key** in its `[Peer]` section.
+Set **PROVISIONING_BASE_URL** in `app/build.gradle.kts` to your provisioning server (e.g. `http://YOUR_SERVER_IP:3000`). The app calls `POST {PROVISIONING_BASE_URL}/provision` with `{ "publicKey": "<base64>" }` and expects a JSON config (endpointHost, endpointPort, serverPublicKey, clientAddress, dns, allowedIPs, persistentKeepalive). See [Provisioning API](#provisioning-api).
 
 ---
 
 ## Verifying the VPN
 
-1. **In the app:** Status shows **Connected** and the duration counter increases.
-2. **In the browser:** Open [ifconfig.me](https://ifconfig.me) or [api.ipify.org](https://api.ipify.org) — the IP should be the VPN server’s exit IP.
+1. In the app: Status shows **Connected** after Connect.
+2. In the browser: Open [ifconfig.me](https://ifconfig.me) — the IP should be the VPN server’s exit IP.
 3. **System:** Settings → Network & internet → VPN — NovaVPN should appear as connected.
 
 ---
@@ -153,22 +120,109 @@ The app generates the **client** key by itself. It does **not** run a VPN server
 
 | Problem | What to try |
 |--------|-------------|
-| **VPN permission denied** | Grant VPN permission when prompted; if you dismissed it, clear app data or reinstall and tap Connect again. |
-| **No error but tunnel not working** | Ensure the embedded server is a real WireGuard server, is reachable, has this device’s **client public key** in its config, and that UDP 64120 is open. |
-| **Handshake / connection fails** | Check server reachability, firewall, and that the server’s config includes the client public key. |
-| **No internet over VPN** | Check server NAT/firewall and that it forwards traffic (e.g. full tunnel `AllowedIPs = 0.0.0.0/0, ::/0` on server). |
-| **Quick Settings tile missing** | Edit Quick Settings and add the **NovaVPN** tile. |
+| **Provisioning failed** | Ensure the provisioning server is running and reachable. Open **TCP 3000** on the server firewall. Set **PROVISIONING_BASE_URL** correctly. Server must have **WG_SERVER_PUBLIC_KEY** and WireGuard set up. |
+| **Connection timed out** | Check server reachability. Open the **WireGuard port** (e.g. UDP 51820) on the server. |
+| **VPN permission** | When first connecting, Android will ask for VPN permission; approve so the app can create the tunnel. |
+| **Quick Settings tile** | Add the **NovaVPN** tile in Quick Settings. Tapping it opens the app and triggers Connect. |
+| **New key/config** | In Settings, tap **Clear cached VPN config**, then Connect again to provision a new peer. |
+| **Log: "UAPIOpen: mkdir ... permission denied"** | Harmless. The WireGuard tunnel library logs this when it can't use its built-in path; the tunnel still works. You can ignore it. |
+| **Handshake retries / "stopped hearing back"** | Tunnel is up but the server may not be reachable on the WireGuard UDP port (e.g. 51820). Open that port on the server firewall and ensure the WireGuard server is listening. Check NAT if the device is behind a router. |
+| **No internet when VPN shows "Connected"** | If handshakes succeed (see server `wg show`: "latest handshake" recent) but transfer stays tiny, enable **IP forwarding** and **NAT** on the server (see server checklist). If handshakes never complete, fix server reachability (open UDP port, firewall). |
+| **Can't ping or connect to the server** | See [Can't reach the server](#cant-reach-the-server) below. |
+
+### Can't reach the server
+
+If you can't ping the server and the app can't connect (provisioning or VPN fails), fix reachability first.
+
+1. **Ping is often blocked**  
+   Many servers and firewalls block **ICMP (ping)**. That's normal — failure to ping does **not** mean the server is down. Test with **TCP** or **UDP** instead (see below).
+
+2. **Use the correct server address**  
+   - In the app, `PROVISIONING_BASE_URL` in `app/build.gradle.kts` must be the server’s **public IP** or a hostname that resolves to it (e.g. `http://YOUR_SERVER_PUBLIC_IP:3000`).  
+   - Find the server’s public IP by running on the server: `curl -s ifconfig.me`.  
+   - If you’re on the **same LAN** as the server, you can use the server’s local IP; from the **internet** (e.g. phone on mobile data), use the **public** IP.
+
+3. **Open ports on the server**  
+   The app needs:
+   - **TCP 3000** — provisioning API (HTTP).
+   - **UDP 64288** (or your `WG_ENDPOINT_PORT`) — WireGuard.
+
+   **On the server (host firewall):**
+   ```bash
+   sudo ufw allow 3000/tcp
+   sudo ufw allow 64288/udp
+   sudo ufw reload
+   ```
+   If the server is a **cloud VM** (AWS, GCP, Azure, DigitalOcean, etc.), also open **TCP 3000** and **UDP 64288** in the provider’s **security group / firewall / network rules** (inbound). Otherwise traffic is dropped before it reaches the server.
+
+4. **Test from your PC or phone**  
+   - **Provisioning (TCP 3000):**  
+     `curl -v http://YOUR_SERVER_IP:3000/`  
+     You should get a response (e.g. 404 or a JSON body), not “Connection refused” or timeout.  
+   - **WireGuard (UDP 64288):**  
+     `nc -u -v YOUR_SERVER_IP 64288`  
+     Then tap Connect in the app; you may see nothing in `nc`, but if the app later completes the handshake, the path works.  
+   - **Ping:**  
+     `ping YOUR_SERVER_IP`  
+     If it times out, that’s OK as long as the `curl` and/or WireGuard tests work.
+
+5. **Server must be running**  
+   On the server: provisioning app (e.g. `node server.js` or `pm2`) and WireGuard (`wg show` shows the interface). Ensure the process listening on 3000 is bound to `0.0.0.0`, not only `127.0.0.1`.
+
+### No internet / handshake retries — server checklist
+
+When the app shows Connected but there’s no internet (or logs show handshake retries), the device cannot reach the WireGuard server over UDP. On the **server**:
+
+1. **Open the WireGuard UDP port** in the firewall (the one in `WG_ENDPOINT_PORT`, e.g. **64288** or 51820).  
+   Example (Linux): `sudo ufw allow 64288/udp && sudo ufw reload` (or your cloud/VM security group).
+
+2. **WireGuard is running and listening:**  
+   `sudo wg show` — you should see the interface and peers.  
+   `sudo ss -ulnp | grep wg` (or `netstat -ulnp`) — should show the ListenPort.
+
+3. **IP forwarding and NAT** (so client traffic can reach the internet):  
+   - Enable forwarding: `sysctl -w net.ipv4.ip_forward=1` (and `net.ipv6.conf.all.forwarding=1` if using IPv6).  
+   - If the server has one public IP, enable NAT/masquerade for traffic from the WireGuard subnet (e.g. `iptables -t nat -A POSTROUTING -s 10.66.66.0/24 -o eth0 -j MASQUERADE`).
+
+4. **Reload peers after provisioning:**  
+   The provisioning server adds the peer with `wg set`; ensure WireGuard is running and the new peer appears in `wg show`.
+
+### Handshake never completes — "stopped hearing back"
+
+The phone sends handshake initiations but never gets a reply. Either the server is not replying, or the reply is dropped before it reaches the phone.
+
+**On the server:**
+
+1. **Confirm WireGuard is listening:**  
+   `sudo ss -ulnp | grep 64288` (use your `WG_ENDPOINT_PORT`). You should see the wg process.
+
+2. **Confirm firewall allows UDP in and out:**  
+   - Inbound: UDP port 64288 must be open (phone → server).  
+   - Outbound: UDP is usually allowed by default; if you have a strict `ufw` or `iptables` OUTPUT policy, allow outbound UDP so the server can send handshake responses back.  
+   - If the server is a **cloud VM**, open UDP 64288 in the provider’s **security group / firewall** (inbound). Outbound is typically allowed.
+
+3. **Capture packets while the phone connects:**  
+   Run: `sudo tcpdump -i any -n udp port 64288 -c 30`  
+   Then tap Connect in the app. You should see:
+   - **Incoming** packets (phone → server) — if you see these, the phone can reach the server.
+   - **Outgoing** packets (server → phone) — if these appear but the phone still doesn’t complete the handshake, something between the server and the phone (carrier, WiFi firewall, NAT) is dropping the reply.
+
+**On the phone / network:**
+
+- **Mobile data (4G/5G):** Some carriers block or throttle **incoming** UDP. Try from a **different WiFi** (e.g. home or another network) to see if handshakes complete there.
+- **Strict WiFi** (corporate, school, public hotspot): May block incoming UDP. Try from a home or personal WiFi.
 
 ---
 
 ## Features
 
-- **One-tap Connect/Disconnect** — States: Disconnected, Connecting, Connected, Disconnecting, Error.
-- **Connection stats** — Duration, public IP, downloaded/uploaded bytes when connected.
-- **Settings** — Auto-connect on boot; guidance for Always-on VPN and kill switch.
-- **Logs** — Connection and app events (no secrets logged).
-- **Notification** — When VPN is connected.
-- **Quick Settings tile** — Connect/disconnect from the shade.
+- **Full in-app VPN** — WireGuard tunnel runs inside the app (no external VPN app).
+- **One-tap Connect** — Provisions (if needed) and connects; Disconnect to bring the tunnel down.
+- **Cached config** — First Connect provisions and caches; later Connects reuse it until you clear in Settings.
+- **Multi-device** — Each device gets its own key and config from the server.
+- **Settings** — Auto-connect on boot (opens app); clear cached config; Always-on VPN and kill switch guidance.
+- **Logs** — App events (no secrets logged).
+- **Quick Settings tile** — Tap to open app and connect.
 
 ---
 
@@ -176,68 +230,49 @@ The app generates the **client** key by itself. It does **not** run a VPN server
 
 | Area        | Technology |
 |------------|------------|
-| **VPN**    | `com.wireguard.android:tunnel` |
+| **VPN**    | WireGuard ([com.wireguard.android:tunnel](https://search.maven.org/artifact/com.wireguard.android/tunnel)) |
+| **Keys**   | [wireguard-keytool](https://github.com/moznion/wireguard-keytool-java) (X25519) |
 | **UI**     | Jetpack Compose, Material 3, Navigation Compose |
 | **DI**     | Hilt |
-| **Storage**| AndroidX Security Crypto (EncryptedSharedPreferences) |
-| **Logging**| Timber |
-| **Animations** | Compose animations, Lottie (optional) |
+| **Storage**| AndroidX Security Crypto (EncryptedSharedPreferences) for keys and config |
+| **Network**| Ktor client for provisioning API |
 
 ---
 
 ## Provisioning API
 
-Use this so **each user gets a config automatically** (e.g. share the app with friends; no one sends keys to an admin).
+The app uses **WireGuard** provisioning so each device gets a unique config.
 
 ### App behaviour
 
-1. On first **Connect**, the app generates a device key and **POST**s the **public key** to `{PROVISIONING_BASE_URL}/provision`.
-2. Your backend adds a new WireGuard peer for that key, assigns a unique client IP, and returns the config.
-3. The app caches the response and uses it for future connects. If the request fails, it falls back to the embedded config.
+1. User taps **Connect**.
+2. If needed, the app generates a WireGuard key pair and stores the private key securely.
+3. The app sends **POST {PROVISIONING_BASE_URL}/provision** with body `{ "publicKey": "<base64>" }`.
+4. The server adds the peer to WireGuard and returns a JSON config (endpointHost, endpointPort, serverPublicKey, clientAddress, dns, allowedIPs, persistentKeepalive).
+5. The app builds a WireGuard `Config` and brings the tunnel **UP** using the official tunnel library. Traffic goes through the VPN.
 
-### Backend contract
+### Backend contract (WireGuard)
 
-- **URL:** `POST {baseUrl}/provision` (no trailing slash on baseUrl).
-- **Request body (JSON):**
-  ```json
-  { "publicKey": "<base64 WireGuard public key>" }
-  ```
+- **URL:** `POST {baseUrl}/provision`
+- **Request (JSON):** `{ "publicKey": "<base64 44-char WireGuard public key>" }`
 - **Response (JSON):**
   ```json
   {
     "endpointHost": "vpn.example.com",
     "endpointPort": 51820,
-    "serverPublicKey": "<server's WireGuard public key, base64>",
-    "clientAddress": "10.66.66.3/32,fd42:42:42::3/128",
+    "serverPublicKey": "<base64>",
+    "clientAddress": "10.66.66.2/32,fd42:42:42::2/128",
     "dns": "1.1.1.1, 1.0.0.1",
     "allowedIPs": "0.0.0.0/0, ::/0",
     "persistentKeepalive": 25,
     "presharedKey": null
   }
   ```
-  - `clientAddress`: unique per device (e.g. 10.66.66.2/32 for device 1, 10.66.66.3/32 for device 2). Include IPv6 if your server uses it.
-  - `presharedKey`: optional; omit or set to `null` if not used.
 
-### Backend implementation outline
-
-1. Receive `publicKey` from the request.
-2. Choose a free client IP (e.g. next free in 10.66.66.0/24) and build the `clientAddress` string.
-3. Add a new `[Peer]` to your WireGuard server config (or use `wg`/API): `PublicKey = <publicKey>`, `AllowedIPs = <clientAddress>`.
-4. Reload or apply the WireGuard config on the server.
-5. Return the JSON above (same endpoint/server key/dns/allowedIPs for all; only `clientAddress` and optionally `presharedKey` vary per peer).
-
-Set `PROVISIONING_BASE_URL` in `app/build.gradle.kts` to your backend’s base URL (e.g. `https://vpn.example.com`).
-
-### Ready-to-run Node.js backend
-
-A **Node.js provisioning server** is included in this repo:
-
-- **Location:** `provisioning-server/`
-- **Run:** `cd provisioning-server && cp .env.example .env` (edit `.env` with your WireGuard server public key and endpoint), then `npm install && npm start`.
-- **Details:** See [provisioning-server/README.md](provisioning-server/README.md). The server runs on the same machine as your WireGuard server, adds peers via `wg set`, and returns the config the app expects. Set `PROVISIONING_BASE_URL` in the app to this server's URL (e.g. `http://YOUR_SERVER_IP:3000` or an HTTPS URL if you put it behind a reverse proxy).
+The provisioning server in this repo (`provisioning-server/`) implements this when **WG_SERVER_PUBLIC_KEY** and WireGuard are configured. See [provisioning-server/README.md](provisioning-server/README.md).
 
 ---
 
 ## License
 
-Use and modify as needed for your project. Note: WireGuard is licensed under the GPL; ensure your use complies with it.
+Use and modify as needed for your project.

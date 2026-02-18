@@ -6,7 +6,6 @@ import androidx.compose.material3.SwitchDefaults;
 import androidx.compose.material.icons.Icons;
 import androidx.compose.material3.TopAppBarDefaults;
 import androidx.compose.runtime.Composable;
-import androidx.compose.ui.Alignment;
 import androidx.compose.ui.Modifier;
 import com.novavpn.app.viewmodel.SettingsViewModel;
 

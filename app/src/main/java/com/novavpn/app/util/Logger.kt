@@ -13,7 +13,7 @@ object Logger {
         "private[_-]?key" to "***REDACTED***",
         "PrivateKey" to "***REDACTED***",
         "preshared[_-]?key" to "***REDACTED***",
-        "([A-Za-z0-9+/]{42}=)" to "***BASE64_REDACTED***", // WireGuard key-like
+        "([A-Za-z0-9+/]{42}=)" to "***BASE64_REDACTED***", // base64 key/cert-like
     ).map { (regex, replacement) -> Pattern.compile(regex, Pattern.CASE_INSENSITIVE) to replacement }
 
     fun init(context: Context) {

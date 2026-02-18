@@ -9,6 +9,7 @@
 require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
 
@@ -37,8 +38,25 @@ const WG_CONFIG_PATH = process.env.WG_CONFIG_PATH || '/etc/wireguard/wg0.conf';
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
 
-if (!WG_SERVER_PUBLIC_KEY) {
-  console.warn('Warning: WG_SERVER_PUBLIC_KEY is not set. Set it in .env');
+// OpenVPN provisioning (optional)
+const OPENVPN_ENABLED = process.env.OPENVPN_ENABLED === '1';
+const OPENVPN_SERVER_HOST = process.env.OPENVPN_SERVER_HOST || process.env.WG_ENDPOINT_HOST || '76.13.189.118';
+const OPENVPN_SERVER_PORT = parseInt(process.env.OPENVPN_SERVER_PORT || '1194', 10);
+const OPENVPN_EASYRSA_DIR = process.env.OPENVPN_EASYRSA_DIR || '';
+const OPENVPN_SCRIPT = path.join(__dirname, 'scripts', 'gen-openvpn-client.sh');
+
+if (!WG_SERVER_PUBLIC_KEY && !OPENVPN_ENABLED) {
+  console.warn('Warning: WG_SERVER_PUBLIC_KEY is not set. Set it in .env (or use OPENVPN_ENABLED=1 for OpenVPN only).');
+}
+
+// Fail fast if we cannot run wg (need root for wg set to work later) — skip when OpenVPN-only
+if (!OPENVPN_ENABLED && !USE_CONFIG_FILE) {
+  try {
+    execSync(`wg show ${WG_INTERFACE}`, { stdio: 'pipe' });
+  } catch (err) {
+    console.error('Cannot run "wg show ' + WG_INTERFACE + '". Run this server as root (e.g. sudo node server.js) so that wg set can add peers.');
+    process.exit(1);
+  }
 }
 
 let state = { nextClientIndex, peers: [] };
@@ -176,6 +194,71 @@ app.post('/provision', (req, res) => {
 
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'novavpn-provisioning' });
+});
+
+// OpenVPN provisioning: always register route so app gets 503 + message instead of 404 when disabled
+let openvpnClientIndex = parseInt(process.env.OPENVPN_NEXT_CLIENT_INDEX || '1', 10);
+const openvpnStatePath = path.join(__dirname, 'openvpn-state.json');
+
+app.post('/provision-openvpn', (req, res) => {
+  if (!OPENVPN_ENABLED) {
+    return res.status(503).json({
+      error: 'OpenVPN provisioning is disabled',
+      detail: 'Set OPENVPN_ENABLED=1 in .env on the server and restart.'
+    });
+  }
+  if (!OPENVPN_EASYRSA_DIR || !fs.existsSync(OPENVPN_SCRIPT)) {
+    return res.status(503).json({
+      error: 'OpenVPN provisioning not configured',
+      detail: 'Set OPENVPN_EASYRSA_DIR in .env and ensure scripts/gen-openvpn-client.sh exists (run: sed -i "s/\\r$//" scripts/gen-openvpn-client.sh).'
+    });
+  }
+  try {
+    const ov = JSON.parse(fs.readFileSync(openvpnStatePath, 'utf8'));
+    if (typeof ov.nextClientIndex === 'number') openvpnClientIndex = ov.nextClientIndex;
+  } catch (_) {}
+
+  const name = `device_${openvpnClientIndex}`;
+  try {
+    // Run script with Unix line endings (strip CRLF) so it works when deployed from Windows
+    let scriptContent = fs.readFileSync(OPENVPN_SCRIPT, 'utf8');
+    if (scriptContent.includes('\r')) {
+      scriptContent = scriptContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const tmpScript = path.join(os.tmpdir(), `gen-openvpn-client-${Date.now()}.sh`);
+      fs.writeFileSync(tmpScript, scriptContent, 'utf8');
+      try {
+        const config = execSync(
+          `bash "${tmpScript}" "${name}" "${OPENVPN_SERVER_HOST}" "${OPENVPN_SERVER_PORT}" "${OPENVPN_EASYRSA_DIR}"`,
+          {
+            encoding: 'utf8',
+            maxBuffer: 256 * 1024,
+            env: { ...process.env, EASYRSA_DIR: OPENVPN_EASYRSA_DIR }
+          }
+        );
+        openvpnClientIndex += 1;
+        fs.writeFileSync(openvpnStatePath, JSON.stringify({ nextClientIndex: openvpnClientIndex }, null, 2));
+        console.log('Provisioned OpenVPN client', name);
+        return res.json({ config: config.trim() });
+      } finally {
+        try { fs.unlinkSync(tmpScript); } catch (_) {}
+      }
+    }
+    const config = execSync(
+      `bash "${OPENVPN_SCRIPT}" "${name}" "${OPENVPN_SERVER_HOST}" "${OPENVPN_SERVER_PORT}" "${OPENVPN_EASYRSA_DIR}"`,
+      {
+        encoding: 'utf8',
+        maxBuffer: 256 * 1024,
+        env: { ...process.env, EASYRSA_DIR: OPENVPN_EASYRSA_DIR }
+      }
+    );
+    openvpnClientIndex += 1;
+    fs.writeFileSync(openvpnStatePath, JSON.stringify({ nextClientIndex: openvpnClientIndex }, null, 2));
+    console.log('Provisioned OpenVPN client', name);
+    res.json({ config: config.trim() });
+  } catch (err) {
+    console.error('OpenVPN provision failed:', err.message);
+    res.status(500).json({ error: 'Failed to generate OpenVPN config', detail: err.message });
+  }
 });
 
 // Management API and UI (optional auth)

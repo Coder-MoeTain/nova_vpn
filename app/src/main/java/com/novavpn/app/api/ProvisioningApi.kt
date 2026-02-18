@@ -1,52 +1,112 @@
 package com.novavpn.app.api
 
 import com.novavpn.app.BuildConfig
-import com.novavpn.app.data.ProvisioningRequest
-import com.novavpn.app.data.ProvisioningResponse
 import com.novavpn.app.util.Logger
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.android.Android
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Calls your backend to register this device and get its WireGuard config.
- * Backend should: add a [Peer] with this public key and a unique AllowedIPs, then return the config.
- *
- * Contract:
- * - POST {baseUrl}/provision
- * - Body: { "publicKey": "<base64>" }
- * - Response: ProvisioningResponse JSON
+ * Fetches config from the provisioning server.
+ * - POST {baseUrl}/provision (WireGuard) with { publicKey } → returns tunnel config.
+ * - POST {baseUrl}/provision-openvpn → returns { "config": "<inline .ovpn>" } (legacy).
  */
 @Singleton
 class ProvisioningApi @Inject constructor() {
 
-    private val baseUrl = BuildConfig.PROVISIONING_BASE_URL
-        .trimEnd('/')
+    private val baseUrl = BuildConfig.PROVISIONING_BASE_URL.trimEnd('/')
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        coerceInputValues = true
+    }
 
     private val httpClient = HttpClient(Android) {
+        install(HttpTimeout) {
+            requestTimeoutMillis = 15_000
+            connectTimeoutMillis = 10_000
+        }
         install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                coerceInputValues = true
-            })
+            json(json)
         }
     }
 
-    suspend fun provision(publicKey: String): ProvisioningResponse {
+    /** WireGuard: register peer and get tunnel config. */
+    suspend fun provisionWireGuard(publicKey: String): WireGuardConfigResponse {
         val url = "$baseUrl/provision"
-        Logger.d("ProvisioningApi: POST $url")
+        Logger.d("ProvisioningApi: POST $url (WireGuard)")
+        val bodyJson = json.encodeToString(WireGuardProvisionRequest(publicKey = publicKey))
         val response = httpClient.post(url) {
-            setBody(ProvisioningRequest(publicKey = publicKey))
+            contentType(ContentType.Application.Json)
+            setBody(bodyJson)
         }
-        val body: ProvisioningResponse = response.body()
-        Logger.d("ProvisioningApi: got config for ${body.clientAddress}")
+        if (response.status.value >= 400) {
+            val errorBody = response.bodyAsText()
+            Logger.w("ProvisioningApi: ${response.status.value} $errorBody")
+            val serverMessage = parseServerError(errorBody)
+            throw Exception(serverMessage)
+        }
+        val bodyText = response.bodyAsText()
+        val body = json.decodeFromString<WireGuardConfigResponse>(bodyText)
+        Logger.d("ProvisioningApi: got WireGuard config ${body.endpointHost}:${body.endpointPort}")
         return body
     }
+
+    suspend fun provisionOpenVpn(): String {
+        val url = "$baseUrl/provision-openvpn"
+        Logger.d("ProvisioningApi: POST $url")
+        val response = httpClient.post(url)
+        if (response.status.value >= 400) {
+            val errorBody = response.bodyAsText()
+            Logger.w("ProvisioningApi: ${response.status.value} $errorBody")
+            val serverMessage = parseServerError(errorBody)
+            throw Exception(serverMessage)
+        }
+        val body = response.body<OpenVpnProvisionResponse>()
+        Logger.d("ProvisioningApi: got config (${body.config.length} chars)")
+        return body.config
+    }
+
+    private fun parseServerError(body: String): String {
+        return try {
+            val err = json.decodeFromString<ServerErrorBody>(body)
+            val detail = err.detail?.takeIf { it.isNotBlank() } ?: err.error?.takeIf { it.isNotBlank() }
+            if (!detail.isNullOrBlank()) "Provisioning failed: $detail" else "Provisioning failed: $body"
+        } catch (_: Exception) {
+            "Provisioning failed (${body.take(200)})"
+        }
+    }
 }
+
+@kotlinx.serialization.Serializable
+data class WireGuardProvisionRequest(val publicKey: String)
+
+@kotlinx.serialization.Serializable
+data class WireGuardConfigResponse(
+    val endpointHost: String,
+    val endpointPort: Int,
+    val serverPublicKey: String,
+    val clientAddress: String,
+    val dns: String,
+    val allowedIPs: String,
+    val persistentKeepalive: Int,
+    val presharedKey: String? = null
+)
+
+@kotlinx.serialization.Serializable
+private data class OpenVpnProvisionResponse(val config: String)
+
+@kotlinx.serialization.Serializable
+private data class ServerErrorBody(val error: String? = null, val detail: String? = null)

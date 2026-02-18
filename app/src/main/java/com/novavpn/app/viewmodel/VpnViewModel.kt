@@ -1,214 +1,160 @@
 package com.novavpn.app.viewmodel
 
+import android.content.Intent
+import android.net.VpnService
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.novavpn.app.BuildConfig
+import com.novavpn.app.api.WireGuardConfigResponse
 import com.novavpn.app.util.Logger
-import com.novavpn.app.vpn.WireGuardManager
-import com.wireguard.android.backend.Statistics
+import com.novavpn.app.vpn.NovaTunnel
+import com.novavpn.app.vpn.WireGuardConfigBuilder
+import com.novavpn.app.vpn.WireGuardKeyGenerator
+import com.wireguard.android.backend.Backend
 import com.wireguard.android.backend.Tunnel
+import com.wireguard.config.BadConfigException
+import com.wireguard.config.Config
 import dagger.hilt.android.lifecycle.HiltViewModel
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.android.Android
-import io.ktor.client.request.get
-import io.ktor.client.statement.bodyAsText
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import javax.inject.Inject
 
 data class VpnUiState(
-    val connectionState: ConnectionState = ConnectionState.Disconnected,
-    val connectionTimeSeconds: Long = 0L,
-    val publicIp: String? = null,
+    val connectionState: ConnectionState = ConnectionState.Idle,
     val lastError: String? = null,
-    /** When connecting, seconds until timeout (e.g. 20, 19, …). Null when not connecting. */
-    val connectingTimeoutRemainingSeconds: Int? = null,
-    /** Optional hint shown below the error (e.g. what to check). */
     val errorHint: String? = null,
-    val statsRxBytes: Long = 0L,
-    val statsTxBytes: Long = 0L
+    val successMessage: String? = null,
+    /** Non-null when VPN permission is needed; Activity should launch this intent. */
+    val vpnPrepareIntent: Intent? = null
 )
 
 @HiltViewModel
 class VpnViewModel @Inject constructor(
-    private val wireGuardManager: WireGuardManager
+    @ApplicationContext private val context: android.content.Context,
+    private val secureStorage: com.novavpn.app.security.SecureStorage,
+    private val provisioningApi: com.novavpn.app.api.ProvisioningApi,
+    private val backend: Backend,
+    private val tunnel: NovaTunnel
 ) : ViewModel() {
-
-    private val httpClient = HttpClient(Android) {}
 
     private val _state = MutableStateFlow(VpnUiState())
     val state: StateFlow<VpnUiState> = _state.asStateFlow()
 
-    private var connectionStartTime: Long = 0L
-    private var timerJob: Job? = null
-
     init {
-        viewModelScope.launch {
-            syncStateFromBackend()
-        }
-        viewModelScope.launch {
-            wireGuardManager.tunnelState.collect { tunnelState ->
-                _state.update { current ->
-                    val wasConnected = current.connectionState is ConnectionState.Connected
-                    val connectionDropped = tunnelState == Tunnel.State.DOWN && wasConnected
-                    val newConnectionState = when {
-                        connectionDropped -> ConnectionState.Error("Connection dropped")
-                        current.connectionState is ConnectionState.Connecting && tunnelState == Tunnel.State.DOWN ->
-                            current.connectionState
-                        else -> tunnelState.toConnectionState()
+        tunnel.setStateListener { newState ->
+            viewModelScope.launch {
+                _state.update { s ->
+                    when (newState) {
+                        Tunnel.State.UP -> s.copy(
+                            connectionState = ConnectionState.Connected,
+                            lastError = null,
+                            errorHint = null,
+                            successMessage = "Connected",
+                            vpnPrepareIntent = null
+                        )
+                        Tunnel.State.DOWN -> s.copy(
+                            connectionState = if (s.connectionState == ConnectionState.Disconnecting)
+                                ConnectionState.Idle else s.connectionState,
+                            vpnPrepareIntent = null
+                        )
+                        else -> s.copy(vpnPrepareIntent = null)
                     }
-                    val newError = when {
-                        connectionDropped -> "Connection dropped"
-                        tunnelState == Tunnel.State.DOWN -> current.lastError
-                        else -> null
-                    }
-                    current.copy(connectionState = newConnectionState, lastError = newError)
-                }
-                if (tunnelState == Tunnel.State.UP) {
-                    connectionStartTime = System.currentTimeMillis()
-                    _state.update { it.copy(connectionTimeSeconds = 0L) }
-                    startTimer()
-                    fetchPublicIp()
-                } else {
-                    stopTimer()
                 }
             }
         }
     }
 
-    private suspend fun syncStateFromBackend() {
-        val current = wireGuardManager.getState()
-        _state.update {
-            it.copy(connectionState = current.toConnectionState())
-        }
-        if (current == Tunnel.State.UP) {
-            connectionStartTime = System.currentTimeMillis()
-            _state.update { it.copy(connectionTimeSeconds = 0L) }
-            startTimer()
-            updateStats()
-        } else {
-            stopTimer()
-        }
+    /** Call after user has completed VPN permission dialog (e.g. Activity result OK). */
+    fun onVpnPrepareResult(granted: Boolean) {
+        _state.update { it.copy(vpnPrepareIntent = null) }
+        if (granted) doConnect()
     }
-
-    private fun startTimer() {
-        timerJob?.cancel()
-        timerJob = viewModelScope.launch {
-            while (true) {
-                delay(1_000)
-                val elapsed = (System.currentTimeMillis() - connectionStartTime) / 1000
-                _state.update { it.copy(connectionTimeSeconds = elapsed) }
-                updateStats()
-            }
-        }
-    }
-
-    private fun stopTimer() {
-        timerJob?.cancel()
-        timerJob = null
-        _state.update { it.copy(connectionTimeSeconds = 0L, statsRxBytes = 0L, statsTxBytes = 0L) }
-    }
-
-    private fun updateStats() {
-        val stats = wireGuardManager.getStatistics() ?: return
-        try {
-            val rx: Long
-            val tx: Long
-            when (stats) {
-                is Statistics -> {
-                    rx = stats.totalRx()
-                    tx = stats.totalTx()
-                }
-                else -> {
-                    rx = stats.javaClass.getMethod("totalRx").invoke(stats)?.let { (it as? Number)?.toLong() ?: 0L } ?: 0L
-                    tx = stats.javaClass.getMethod("totalTx").invoke(stats)?.let { (it as? Number)?.toLong() ?: 0L } ?: 0L
-                }
-            }
-            _state.update { it.copy(statsRxBytes = rx, statsTxBytes = tx) }
-        } catch (e: Exception) {
-            Logger.w(e, "updateStats failed")
-        }
-    }
-
-    private val connectingTimeoutMs = 45_000L
-    private val connectingTimeoutSeconds = (connectingTimeoutMs / 1000).toInt()
 
     fun connect() {
+        val prepareIntent = VpnService.prepare(context)
+        if (prepareIntent != null) {
+            _state.update {
+                it.copy(
+                    connectionState = ConnectionState.Idle,
+                    lastError = null,
+                    errorHint = null,
+                    vpnPrepareIntent = prepareIntent
+                )
+            }
+            return
+        }
+        doConnect()
+    }
+
+    private fun doConnect() {
         viewModelScope.launch {
-            Logger.d("connect: setting state Connecting")
             _state.update {
                 it.copy(
                     connectionState = ConnectionState.Connecting,
                     lastError = null,
                     errorHint = null,
-                    connectingTimeoutRemainingSeconds = connectingTimeoutSeconds
+                    successMessage = null,
+                    vpnPrepareIntent = null
                 )
             }
-            val timeoutJob = launch {
-                var remaining = connectingTimeoutSeconds
-                while (remaining > 0) {
-                    delay(1_000)
-                    remaining--
-                    _state.update { current ->
-                        if (current.connectionState == ConnectionState.Connecting)
-                            current.copy(connectingTimeoutRemainingSeconds = remaining)
-                        else current
-                    }
-                }
-                _state.update { current ->
-                    if (current.connectionState == ConnectionState.Connecting) {
-                        Logger.w("connect: timeout reached while still connecting")
-                        current.copy(
-                            connectionState = ConnectionState.Error("Connection timed out"),
-                            lastError = "Connection timed out",
-                            errorHint = "Open the WireGuard UDP port on the server firewall and ensure the device key is on the server. Slow networks may need more time—try again.",
-                            connectingTimeoutRemainingSeconds = null
-                        )
-                    } else current
-                }
-            }
             try {
-                Logger.d("connect: building config (on IO)...")
-                val config = withContext(Dispatchers.IO) {
-                    wireGuardManager.buildConfig()
+                var privateKey = secureStorage.getWireGuardPrivateKeyBase64()
+                var publicKey: String
+                if (privateKey.isNullOrBlank()) {
+                    val (priv, pub) = withContext(Dispatchers.Default) { WireGuardKeyGenerator.generate() }
+                    privateKey = priv
+                    publicKey = pub
+                    secureStorage.setWireGuardPrivateKeyBase64(privateKey)
+                } else {
+                    val key = net.moznion.wireguard.keytool.WireGuardKey(privateKey)
+                    publicKey = key.base64PublicKey
                 }
-                Logger.d("connect: config built, calling setStateUp (on IO)...")
+
+                var wgConfig: WireGuardConfigResponse? = secureStorage.getWireGuardConfigJson()?.let { json ->
+                    try {
+                        Json.decodeFromString<WireGuardConfigResponse>(json)
+                    } catch (_: Exception) { null }
+                }
+                if (wgConfig == null) {
+                    if (BuildConfig.PROVISIONING_BASE_URL.isBlank())
+                        throw Exception("Set PROVISIONING_BASE_URL in app/build.gradle.kts to your provisioning server URL.")
+                    wgConfig = withContext(Dispatchers.IO) { provisioningApi.provisionWireGuard(publicKey) }
+                    secureStorage.setWireGuardConfigJson(Json.encodeToString(wgConfig))
+                }
+
+                val config: Config = withContext(Dispatchers.Default) {
+                    WireGuardConfigBuilder.build(privateKey, wgConfig)
+                }
                 withContext(Dispatchers.IO) {
-                    wireGuardManager.setStateUp(config)
+                    backend.setState(tunnel, Tunnel.State.UP, config)
                 }
-                Logger.d("connect: setStateUp returned")
-                timeoutJob.cancel()
-                withContext(Dispatchers.Main.immediate) {
-                    connectionStartTime = System.currentTimeMillis()
-                    _state.update {
-                        it.copy(
-                            connectionState = ConnectionState.Connected,
-                            connectionTimeSeconds = 0L,
-                            lastError = null,
-                            errorHint = null,
-                            connectingTimeoutRemainingSeconds = null
-                        )
-                    }
-                    startTimer()
-                    fetchPublicIp()
-                    updateStats()
+                // State will update to Connected via tunnel.setStateListener when UP is applied
+            } catch (e: BadConfigException) {
+                Logger.e(e, "WireGuard config error")
+                _state.update {
+                    it.copy(
+                        connectionState = ConnectionState.Error("Invalid config"),
+                        lastError = e.message,
+                        errorHint = "Clear cached config in Settings and try again."
+                    )
                 }
             } catch (e: Exception) {
-                timeoutJob.cancel()
-                Logger.e(e, "Connect failed: ${e.javaClass.simpleName}: ${e.message}")
+                Logger.e(e, "Connect failed")
                 val (msg, hint) = userFriendlyMessageAndHint(e)
                 _state.update {
                     it.copy(
                         connectionState = ConnectionState.Error(msg),
                         lastError = msg,
                         errorHint = hint,
-                        connectingTimeoutRemainingSeconds = null
+                        successMessage = null
                     )
                 }
             }
@@ -218,17 +164,16 @@ class VpnViewModel @Inject constructor(
     fun disconnect() {
         viewModelScope.launch {
             _state.update { it.copy(connectionState = ConnectionState.Disconnecting) }
-            wireGuardManager.setStateDown()
-            // Update UI immediately; do not rely on library callback or getState()
-            withContext(Dispatchers.Main.immediate) {
-                stopTimer()
+            try {
+                withContext(Dispatchers.IO) {
+                    backend.setState(tunnel, Tunnel.State.DOWN, null)
+                }
+            } catch (e: Exception) {
+                Logger.e(e, "Disconnect failed")
                 _state.update {
                     it.copy(
-                        connectionState = ConnectionState.Disconnected,
-                        connectionTimeSeconds = 0L,
-                        statsRxBytes = 0L,
-                        statsTxBytes = 0L,
-                        publicIp = null
+                        connectionState = ConnectionState.Idle,
+                        lastError = null
                     )
                 }
             }
@@ -236,38 +181,35 @@ class VpnViewModel @Inject constructor(
     }
 
     fun clearError() {
-        _state.update { it.copy(lastError = null, connectionState = ConnectionState.Disconnected) }
-    }
-
-    fun refreshPublicIp() {
-        viewModelScope.launch { fetchPublicIp() }
-    }
-
-    private suspend fun fetchPublicIp() {
-        try {
-            val ip = withContext(Dispatchers.IO) {
-                httpClient.get("https://api.ipify.org").bodyAsText()
-            }
-            _state.update { it.copy(publicIp = ip) }
-        } catch (e: Exception) {
-            Logger.w(e, "Could not fetch public IP")
-            _state.update { it.copy(publicIp = null) }
+        _state.update {
+            it.copy(
+                connectionState = ConnectionState.Idle,
+                lastError = null,
+                errorHint = null,
+                successMessage = null,
+                vpnPrepareIntent = null
+            )
         }
+    }
+
+    fun clearVpnPrepareIntent() {
+        _state.update { it.copy(vpnPrepareIntent = null) }
     }
 
     private fun userFriendlyMessageAndHint(e: Throwable): Pair<String, String?> {
         val msg = e.message?.lowercase() ?: ""
+        val fullMessage = e.message ?: "Connection failed"
         return when {
-            msg.contains("permission") || msg.contains("vpn") ->
-                "VPN permission denied" to "Grant VPN permission when prompted."
-            msg.contains("handshake") ->
-                "Handshake failed" to "Check that the server has this device's public key."
-            msg.contains("network") || msg.contains("unreachable") || msg.contains("failed to connect") ->
-                "Server unreachable" to "Check internet and that the VPN server is up and reachable."
+            msg.contains("provisioning failed:") ->
+                "Provisioning failed" to fullMessage.removePrefix("Provisioning failed: ").trim().ifBlank {
+                    "Ensure the server is running and PROVISIONING_BASE_URL points to it (e.g. http://YOUR_SERVER_IP:3000)."
+                }
+            msg.contains("provision") || msg.contains("connection refused") ->
+                "Provisioning failed" to "Ensure the provisioning server is running and PROVISIONING_BASE_URL in build.gradle.kts points to it (e.g. http://YOUR_SERVER_IP:3000)."
             msg.contains("timeout") || msg.contains("timed out") ->
-                "Connection timed out" to "Check that the VPN server is reachable and your device's key is on the server."
-            msg.contains("provision") || msg.contains("api") || msg.contains("connection refused") ->
-                "Provisioning failed" to "Run the provisioning server on the same machine as WireGuard and set PROVISIONING_BASE_URL in app/build.gradle.kts to that server's URL (e.g. http://SERVER_IP:3000)."
+                "Connection timed out" to "Check that the server is reachable and port 3000 is open."
+            msg.contains("network") || msg.contains("unreachable") ->
+                "Server unreachable" to "Check internet connection and server URL."
             else -> (e.message ?: "Connection failed") to null
         }
     }

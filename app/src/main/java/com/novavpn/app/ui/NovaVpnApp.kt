@@ -12,6 +12,7 @@ import com.novavpn.app.viewmodel.VpnViewModel
 fun NovaVpnApp(
     vpnViewModel: VpnViewModel,
     tryConnect: () -> Unit,
+    tryDisconnect: () -> Unit,
     autoConnectRequested: Boolean = false
 ) {
     val navController = rememberNavController()
@@ -24,6 +25,7 @@ fun NovaVpnApp(
             HomeScreen(
                 viewModel = vpnViewModel,
                 tryConnect = tryConnect,
+                tryDisconnect = tryDisconnect,
                 autoConnectRequested = autoConnectRequested,
                 onNavigateToSettings = { navController.navigate("settings") },
                 onNavigateToLogs = { navController.navigate("logs") }

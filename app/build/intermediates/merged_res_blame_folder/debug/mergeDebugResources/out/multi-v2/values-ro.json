@@ -4,24 +4,7 @@
             "outputFile": "com.novavpn.app-mergeDebugResources-71:/values-ro/values-ro.xml",
             "map": [
                 {
-                    "source": "C:\\Users\\koko\\.gradle\\caches\\8.9\\transforms\\7f937ba0f9a586d8312ffdb6ae89048f\\transformed\\ui-release\\res\\values-ro\\values-ro.xml",
-                    "from": {
-                        "startLines": "2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18",
-                        "startColumns": "4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4",
-                        "startOffsets": "105,202,286,383,485,573,651,738,829,911,983,1052,1140,1230,1303,1380,1447",
-                        "endColumns": "96,83,96,101,87,77,86,90,81,71,68,87,89,72,76,66,114",
-                        "endOffsets": "197,281,378,480,568,646,733,824,906,978,1047,1135,1225,1298,1375,1442,1557"
-                    },
-                    "to": {
-                        "startLines": "36,37,38,39,40,41,42,99,100,101,102,103,104,106,108,109,110",
-                        "startColumns": "4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4",
-                        "startOffsets": "3578,3675,3759,3856,3958,4046,4124,10466,10557,10639,10711,10780,10868,11042,11216,11293,11360",
-                        "endColumns": "96,83,96,101,87,77,86,90,81,71,68,87,89,72,76,66,114",
-                        "endOffsets": "3670,3754,3851,3953,4041,4119,4206,10552,10634,10706,10775,10863,10953,11110,11288,11355,11470"
-                    }
-                },
-                {
-                    "source": "C:\\Users\\koko\\.gradle\\caches\\8.9\\transforms\\a98947cfd015801475581c57441e3b4b\\transformed\\core-1.13.1\\res\\values-ro\\values-ro.xml",
+                    "source": "C:\\Users\\linuxer\\.gradle\\caches\\8.9\\transforms\\a98947cfd015801475581c57441e3b4b\\transformed\\core-1.13.1\\res\\values-ro\\values-ro.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9",
                         "startColumns": "4,4,4,4,4,4,4,4",
@@ -38,7 +21,41 @@
                     }
                 },
                 {
-                    "source": "C:\\Users\\koko\\.gradle\\caches\\8.9\\transforms\\8941b29e425ff1a483f06c7b57b4adcc\\transformed\\appcompat-1.6.1\\res\\values-ro\\values-ro.xml",
+                    "source": "C:\\Users\\linuxer\\.gradle\\caches\\8.9\\transforms\\7f937ba0f9a586d8312ffdb6ae89048f\\transformed\\ui-release\\res\\values-ro\\values-ro.xml",
+                    "from": {
+                        "startLines": "2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18",
+                        "startColumns": "4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4",
+                        "startOffsets": "105,202,286,383,485,573,651,738,829,911,983,1052,1140,1230,1303,1380,1447",
+                        "endColumns": "96,83,96,101,87,77,86,90,81,71,68,87,89,72,76,66,114",
+                        "endOffsets": "197,281,378,480,568,646,733,824,906,978,1047,1135,1225,1298,1375,1442,1557"
+                    },
+                    "to": {
+                        "startLines": "36,37,38,39,40,41,42,99,100,101,102,103,104,106,108,109,110",
+                        "startColumns": "4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4",
+                        "startOffsets": "3578,3675,3759,3856,3958,4046,4124,10466,10557,10639,10711,10780,10868,11042,11216,11293,11360",
+                        "endColumns": "96,83,96,101,87,77,86,90,81,71,68,87,89,72,76,66,114",
+                        "endOffsets": "3670,3754,3851,3953,4041,4119,4206,10552,10634,10706,10775,10863,10953,11110,11288,11355,11470"
+                    }
+                },
+                {
+                    "source": "C:\\Users\\linuxer\\.gradle\\caches\\8.9\\transforms\\b0488e9947feaa289acffdfa360ec6c5\\transformed\\foundation-release\\res\\values-ro\\values-ro.xml",
+                    "from": {
+                        "startLines": "2,3",
+                        "startColumns": "4,4",
+                        "startOffsets": "55,150",
+                        "endColumns": "94,99",
+                        "endOffsets": "145,245"
+                    },
+                    "to": {
+                        "startLines": "111,112",
+                        "startColumns": "4,4",
+                        "startOffsets": "11475,11570",
+                        "endColumns": "94,99",
+                        "endOffsets": "11565,11665"
+                    }
+                },
+                {
+                    "source": "C:\\Users\\linuxer\\.gradle\\caches\\8.9\\transforms\\8941b29e425ff1a483f06c7b57b4adcc\\transformed\\appcompat-1.6.1\\res\\values-ro\\values-ro.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29",
                         "startColumns": "4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4",
@@ -55,7 +72,7 @@
                     }
                 },
                 {
-                    "source": "C:\\Users\\koko\\.gradle\\caches\\8.9\\transforms\\2287b2462601be62467beb10e1bd6100\\transformed\\material3-release\\res\\values-ro\\values-ro.xml",
+                    "source": "C:\\Users\\linuxer\\.gradle\\caches\\8.9\\transforms\\2287b2462601be62467beb10e1bd6100\\transformed\\material3-release\\res\\values-ro\\values-ro.xml",
                     "from": {
                         "startLines": "2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57",
                         "startColumns": "4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4,4",
@@ -69,23 +86,6 @@
                         "startOffsets": "4211,4341,4468,4585,4711,4821,4918,5032,5169,5289,5432,5516,5618,5713,5811,5931,6058,6165,6303,6439,6580,6756,6893,7012,7135,7261,7357,7453,7580,7721,7821,7926,8037,8177,8323,8435,8539,8615,8710,8802,8888,8975,9076,9158,9241,9340,9444,9539,9640,9727,9838,9938,10044,10165,10247,10362",
                         "endColumns": "129,126,116,125,109,96,113,136,119,142,83,101,94,97,119,126,106,137,135,140,175,136,118,122,125,95,95,126,140,99,104,110,139,145,111,103,75,94,91,85,86,100,81,82,98,103,94,100,86,110,99,105,120,81,114,103",
                         "endOffsets": "4336,4463,4580,4706,4816,4913,5027,5164,5284,5427,5511,5613,5708,5806,5926,6053,6160,6298,6434,6575,6751,6888,7007,7130,7256,7352,7448,7575,7716,7816,7921,8032,8172,8318,8430,8534,8610,8705,8797,8883,8970,9071,9153,9236,9335,9439,9534,9635,9722,9833,9933,10039,10160,10242,10357,10461"
-                    }
-                },
-                {
-                    "source": "C:\\Users\\koko\\.gradle\\caches\\8.9\\transforms\\b0488e9947feaa289acffdfa360ec6c5\\transformed\\foundation-release\\res\\values-ro\\values-ro.xml",
-                    "from": {
-                        "startLines": "2,3",
-                        "startColumns": "4,4",
-                        "startOffsets": "55,150",
-                        "endColumns": "94,99",
-                        "endOffsets": "145,245"
-                    },
-                    "to": {
-                        "startLines": "111,112",
-                        "startColumns": "4,4",
-                        "startOffsets": "11475,11570",
-                        "endColumns": "94,99",
-                        "endOffsets": "11565,11665"
                     }
                 }
             ]

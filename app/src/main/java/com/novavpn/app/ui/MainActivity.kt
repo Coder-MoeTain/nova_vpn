@@ -1,18 +1,20 @@
 package com.novavpn.app.ui
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
-import com.novavpn.app.util.Logger
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import com.novavpn.app.ui.theme.NovaVpnTheme
 import com.novavpn.app.vpn.BootReceiver
 import com.novavpn.app.viewmodel.VpnViewModel
-import com.wireguard.android.backend.GoBackend
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -23,38 +25,36 @@ class MainActivity : ComponentActivity() {
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        Logger.d("VPN permission result: resultCode=${result.resultCode}")
-        if (result.resultCode == RESULT_OK) {
-            Logger.d("VPN permission granted, connecting")
-            vpnViewModel.connect()
-        } else {
-            Logger.w("VPN permission denied or cancelled")
-        }
+        vpnViewModel.onVpnPrepareResult(result.resultCode == RESULT_OK)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val tryConnect: () -> Unit = {
-            Logger.d("tryConnect: checking VPN permission")
-            val intent = GoBackend.VpnService.prepare(this)
-            if (intent != null) {
-                Logger.d("tryConnect: VPN permission needed, launching system dialog")
-                vpnPermissionLauncher.launch(intent)
-            } else {
-                Logger.d("tryConnect: permission OK, calling viewModel.connect()")
-                vpnViewModel.connect()
-            }
+        if (intent?.getBooleanExtra(EXTRA_CONNECT_NOW, false) == true) {
+            vpnViewModel.connect()
         }
         setContent {
             NovaVpnTheme {
+                val state by vpnViewModel.state.collectAsState()
+                LaunchedEffect(state.vpnPrepareIntent) {
+                    state.vpnPrepareIntent?.let { intent ->
+                        vpnPermissionLauncher.launch(intent)
+                        vpnViewModel.clearVpnPrepareIntent()
+                    }
+                }
                 Surface(modifier = Modifier.fillMaxSize()) {
                     NovaVpnApp(
                         vpnViewModel = vpnViewModel,
-                        tryConnect = tryConnect,
+                        tryConnect = { vpnViewModel.connect() },
+                        tryDisconnect = { vpnViewModel.disconnect() },
                         autoConnectRequested = intent?.getBooleanExtra(BootReceiver.EXTRA_AUTO_CONNECT, false) == true
                     )
                 }
             }
         }
+    }
+
+    companion object {
+        const val EXTRA_CONNECT_NOW = "connect_now"
     }
 }

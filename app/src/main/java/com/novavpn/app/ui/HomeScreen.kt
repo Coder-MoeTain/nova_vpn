@@ -66,6 +66,7 @@ import com.novavpn.app.viewmodel.VpnUiState
 fun HomeScreen(
     viewModel: com.novavpn.app.viewmodel.VpnViewModel,
     tryConnect: () -> Unit,
+    tryDisconnect: () -> Unit,
     autoConnectRequested: Boolean,
     onNavigateToSettings: () -> Unit,
     onNavigateToLogs: () -> Unit
@@ -84,9 +85,9 @@ fun HomeScreen(
         ) {
             TopBar(onSettings = onNavigateToSettings, onLogs = onNavigateToLogs)
             Spacer(modifier = Modifier.height(24.dp))
-            ConnectionCard(state = state, tryConnect = tryConnect, onDisconnect = viewModel::disconnect, onClearError = viewModel::clearError)
+            ConnectionCard(state = state, tryConnect = tryConnect, tryDisconnect = tryDisconnect, onClearError = viewModel::clearError)
             Spacer(modifier = Modifier.height(24.dp))
-            StatsCard(state)
+            StatsCard()
         }
     }
 }
@@ -123,7 +124,7 @@ private fun TopBar(onSettings: () -> Unit, onLogs: () -> Unit) {
 private fun ConnectionCard(
     state: VpnUiState,
     tryConnect: () -> Unit,
-    onDisconnect: () -> Unit,
+    tryDisconnect: () -> Unit,
     onClearError: () -> Unit
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -154,7 +155,6 @@ private fun ConnectionCard(
                 targetState = connectionState,
                 transitionSpec = {
                     when {
-                        targetState is ConnectionState.Disconnecting -> fadeIn(animationSpec = tween(1200, easing = LinearEasing)) togetherWith fadeOut(animationSpec = tween(400))
                         targetState is ConnectionState.Connecting -> scaleIn(
                             initialScale = 0.7f,
                             animationSpec = tween(400, easing = LinearEasing)
@@ -239,109 +239,34 @@ private fun ConnectionCard(
                             }
                         }
                     }
-                    is ConnectionState.Disconnecting -> {
-                        val disconnectingScale by animateFloatAsState(
-                            targetValue = 0.92f,
-                            animationSpec = tween(durationMillis = 1400, easing = LinearEasing),
-                            label = "disconnectingScale"
-                        )
-                        val disconnectingAlpha by animateFloatAsState(
-                            targetValue = 0.85f,
-                            animationSpec = tween(durationMillis = 1200, easing = LinearEasing),
-                            label = "disconnectingAlpha"
-                        )
+                    is ConnectionState.Connected -> {
                         Box(
                             modifier = Modifier
                                 .size(120.dp)
-                                .scale(disconnectingScale)
+                                .scale(scale)
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f * disconnectingAlpha)),
+                                .background(
+                                    Brush.radialGradient(
+                                        colors = listOf(
+                                            Color(0xFF4CAF50).copy(alpha = 0.5f),
+                                            Color(0xFF4CAF50).copy(alpha = 0.15f)
+                                        )
+                                    )
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
-                            Text(
-                                "…",
-                                fontSize = 32.sp,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = disconnectingAlpha)
-                            )
+                            Text("VPN", fontSize = 18.sp, color = Color(0xFF2E7D32))
                         }
                     }
-                    is ConnectionState.Connected -> {
-                        val flowTransition = rememberInfiniteTransition(label = "dataFlow")
-                        val flowRotation by flowTransition.animateFloat(
-                            initialValue = 0f,
-                            targetValue = 360f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(4000, easing = LinearEasing),
-                                repeatMode = RepeatMode.Restart
-                            ),
-                            label = "flowRotation"
-                        )
-                        val flowRotationReverse by flowTransition.animateFloat(
-                            initialValue = 360f,
-                            targetValue = 0f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(6000, easing = LinearEasing),
-                                repeatMode = RepeatMode.Restart
-                            ),
-                            label = "flowRotationRev"
-                        )
-                        val dashPhase by flowTransition.animateFloat(
-                            initialValue = 0f,
-                            targetValue = 35f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(1500, easing = LinearEasing),
-                                repeatMode = RepeatMode.Restart
-                            ),
-                            label = "dashPhase"
-                        )
-                        val primaryColor = MaterialTheme.colorScheme.primary
+                    is ConnectionState.Disconnecting -> {
                         Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier.size(140.dp)
+                            modifier = Modifier
+                                .size(120.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Canvas(
-                                modifier = Modifier
-                                    .size(140.dp)
-                                    .rotate(flowRotation)
-                            ) {
-                                drawCircle(
-                                    color = primaryColor.copy(alpha = 0.5f),
-                                    radius = size.minDimension / 2f - 2.dp.toPx(),
-                                    style = Stroke(
-                                        width = 2.5.dp.toPx(),
-                                        pathEffect = PathEffect.dashPathEffect(
-                                            floatArrayOf(12.dp.toPx(), 18.dp.toPx()),
-                                            phase = dashPhase
-                                        )
-                                    )
-                                )
-                            }
-                            Canvas(
-                                modifier = Modifier
-                                    .size(128.dp)
-                                    .rotate(flowRotationReverse)
-                            ) {
-                                drawCircle(
-                                    color = primaryColor.copy(alpha = 0.35f),
-                                    radius = size.minDimension / 2f - 2.dp.toPx(),
-                                    style = Stroke(
-                                        width = 2.dp.toPx(),
-                                        pathEffect = PathEffect.dashPathEffect(
-                                            floatArrayOf(8.dp.toPx(), 14.dp.toPx()),
-                                            phase = dashPhase * 0.7f
-                                        )
-                                    )
-                                )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .size(120.dp)
-                                    .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Text("ON", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                            }
+                            CircularProgressIndicator(modifier = Modifier.size(40.dp), strokeWidth = 2.dp)
                         }
                     }
                     is ConnectionState.Error -> {
@@ -379,29 +304,15 @@ private fun ConnectionCard(
             Spacer(modifier = Modifier.height(24.dp))
             Text(
                 when (state.connectionState) {
-                    is ConnectionState.Connecting -> {
-                        val remaining = state.connectingTimeoutRemainingSeconds
-                        if (remaining != null && remaining > 0)
-                            "Connecting… (${remaining}s)"
-                        else
-                            "Connecting…"
-                    }
+                    is ConnectionState.Connecting -> "Connecting…"
                     is ConnectionState.Connected -> "Connected"
                     is ConnectionState.Disconnecting -> "Disconnecting…"
                     is ConnectionState.Error -> (state.connectionState as ConnectionState.Error).message
-                    else -> "Tap to connect"
+                    else -> state.successMessage ?: "Tap to connect"
                 },
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            if (state.connectionState is ConnectionState.Connecting && state.connectingTimeoutRemainingSeconds != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    "Timeout in ${state.connectingTimeoutRemainingSeconds}s — check server reachability",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-            }
             if (state.lastError != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -425,20 +336,11 @@ private fun ConnectionCard(
             Spacer(modifier = Modifier.height(24.dp))
             when (state.connectionState) {
                 is ConnectionState.Connected -> {
-                    androidx.compose.material3.FilledTonalButton(
-                        onClick = onDisconnect,
+                    androidx.compose.material3.OutlinedButton(
+                        onClick = tryDisconnect,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text("Disconnect")
-                    }
-                }
-                is ConnectionState.Disconnecting -> {
-                    androidx.compose.material3.FilledTonalButton(
-                        onClick = { },
-                        modifier = Modifier.fillMaxWidth(),
-                        enabled = false
-                    ) {
-                        Text("Disconnecting…")
                     }
                 }
                 is ConnectionState.Error -> {
@@ -446,14 +348,14 @@ private fun ConnectionCard(
                         onClick = tryConnect,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("Reconnect")
+                        Text("Try again")
                     }
                 }
                 else -> {
                     androidx.compose.material3.Button(
                         onClick = tryConnect,
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = state.connectionState !is ConnectionState.Connecting
+                        enabled = state.connectionState !is ConnectionState.Connecting && state.connectionState !is ConnectionState.Disconnecting
                     ) {
                         Text("Connect")
                     }
@@ -463,49 +365,8 @@ private fun ConnectionCard(
     }
 }
 
-private fun formatDuration(seconds: Long): String {
-    if (seconds < 60) return "${seconds}s"
-    val m = seconds / 60
-    val s = seconds % 60
-    return if (m < 60) "${m}m ${s}s" else "${m / 60}h ${m % 60}m ${s}s"
-}
-
-private fun formatBytes(bytes: Long): String {
-    return when {
-        bytes < 1024 -> "$bytes B"
-        bytes < 1024 * 1024 -> "${bytes / 1024} KB"
-        bytes < 1024L * 1024 * 1024 -> String.format("%.2f MB", bytes / (1024.0 * 1024))
-        else -> String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024))
-    }
-}
-
 @Composable
-private fun StatRow(
-    iconContent: @Composable () -> Unit,
-    label: String,
-    value: String,
-    valueColor: Color = MaterialTheme.colorScheme.onSurface
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-                iconContent()
-            }
-            Spacer(modifier = Modifier.size(12.dp))
-            Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
-        }
-        Text(value, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium, color = valueColor)
-    }
-}
-
-@Composable
-private fun StatsCard(state: VpnUiState) {
+private fun StatsCard() {
     Card(
         modifier = Modifier
             .padding(horizontal = 24.dp)
@@ -515,47 +376,16 @@ private fun StatsCard(state: VpnUiState) {
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
             Text(
-                "Statistics",
+                "WireGuard VPN",
                 style = MaterialTheme.typography.titleSmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
             )
-            Spacer(modifier = Modifier.height(12.dp))
-            if (state.connectionState is ConnectionState.Connected) {
-                StatRow(
-                    iconContent = {
-                        Icon(Icons.Filled.Schedule, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                    },
-                    label = "Duration",
-                    value = formatDuration(state.connectionTimeSeconds)
-                )
-                state.publicIp?.let { ip ->
-                    StatRow(
-                        iconContent = {
-                            Icon(Icons.Filled.Public, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                        },
-                        label = "Public IP",
-                        value = ip
-                    )
-                }
-                StatRow(
-                    iconContent = {
-                        Icon(Icons.Filled.ArrowDownward, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                    },
-                    label = "Downloaded",
-                    value = formatBytes(state.statsRxBytes),
-                    valueColor = MaterialTheme.colorScheme.primary
-                )
-                StatRow(
-                    iconContent = {
-                        Icon(Icons.Filled.ArrowUpward, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.secondary)
-                    },
-                    label = "Uploaded",
-                    value = formatBytes(state.statsTxBytes),
-                    valueColor = MaterialTheme.colorScheme.secondary
-                )
-            } else {
-                Text("Not connected", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
-            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                "Tap Connect to establish a VPN tunnel. Your device gets a unique key and config from the provisioning server.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+            )
         }
     }
 }
