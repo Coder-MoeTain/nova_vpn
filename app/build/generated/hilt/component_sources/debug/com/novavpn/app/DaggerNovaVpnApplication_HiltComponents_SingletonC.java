@@ -2,10 +2,16 @@ package com.novavpn.app;
 
 import android.app.Activity;
 import android.app.Service;
+import android.content.Context;
 import android.view.View;
 import androidx.fragment.app.Fragment;
+import androidx.hilt.work.HiltWorkerFactory;
+import androidx.hilt.work.WorkerAssistedFactory;
+import androidx.hilt.work.WorkerFactoryModule_ProvideFactoryFactory;
 import androidx.lifecycle.SavedStateHandle;
 import androidx.lifecycle.ViewModel;
+import androidx.work.ListenableWorker;
+import androidx.work.WorkerParameters;
 import com.novavpn.app.api.ProvisioningApi;
 import com.novavpn.app.data.LogRepository;
 import com.novavpn.app.di.AppModule_ProvideBackendFactory;
@@ -20,6 +26,8 @@ import com.novavpn.app.viewmodel.VpnViewModel;
 import com.novavpn.app.viewmodel.VpnViewModel_HiltModules;
 import com.novavpn.app.vpn.NovaTunnel;
 import com.novavpn.app.vpn.VpnTileService;
+import com.novavpn.app.work.LocationReportingWorker;
+import com.novavpn.app.work.LocationReportingWorker_AssistedFactory;
 import com.wireguard.android.backend.Backend;
 import dagger.hilt.android.ActivityRetainedLifecycle;
 import dagger.hilt.android.ViewModelLifecycle;
@@ -44,6 +52,7 @@ import dagger.internal.LazyClassKeyMap;
 import dagger.internal.MapBuilder;
 import dagger.internal.Preconditions;
 import dagger.internal.Provider;
+import dagger.internal.SingleCheck;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
@@ -402,17 +411,17 @@ public final class DaggerNovaVpnApplication_HiltComponents_SingletonC {
 
     @IdentifierNameString
     private static final class LazyClassKeyProvider {
-      static String com_novavpn_app_viewmodel_LogsViewModel = "com.novavpn.app.viewmodel.LogsViewModel";
-
       static String com_novavpn_app_viewmodel_SettingsViewModel = "com.novavpn.app.viewmodel.SettingsViewModel";
+
+      static String com_novavpn_app_viewmodel_LogsViewModel = "com.novavpn.app.viewmodel.LogsViewModel";
 
       static String com_novavpn_app_viewmodel_VpnViewModel = "com.novavpn.app.viewmodel.VpnViewModel";
 
       @KeepFieldType
-      LogsViewModel com_novavpn_app_viewmodel_LogsViewModel2;
+      SettingsViewModel com_novavpn_app_viewmodel_SettingsViewModel2;
 
       @KeepFieldType
-      SettingsViewModel com_novavpn_app_viewmodel_SettingsViewModel2;
+      LogsViewModel com_novavpn_app_viewmodel_LogsViewModel2;
 
       @KeepFieldType
       VpnViewModel com_novavpn_app_viewmodel_VpnViewModel2;
@@ -462,17 +471,17 @@ public final class DaggerNovaVpnApplication_HiltComponents_SingletonC {
 
     @IdentifierNameString
     private static final class LazyClassKeyProvider {
-      static String com_novavpn_app_viewmodel_VpnViewModel = "com.novavpn.app.viewmodel.VpnViewModel";
-
       static String com_novavpn_app_viewmodel_SettingsViewModel = "com.novavpn.app.viewmodel.SettingsViewModel";
+
+      static String com_novavpn_app_viewmodel_VpnViewModel = "com.novavpn.app.viewmodel.VpnViewModel";
 
       static String com_novavpn_app_viewmodel_LogsViewModel = "com.novavpn.app.viewmodel.LogsViewModel";
 
       @KeepFieldType
-      VpnViewModel com_novavpn_app_viewmodel_VpnViewModel2;
+      SettingsViewModel com_novavpn_app_viewmodel_SettingsViewModel2;
 
       @KeepFieldType
-      SettingsViewModel com_novavpn_app_viewmodel_SettingsViewModel2;
+      VpnViewModel com_novavpn_app_viewmodel_VpnViewModel2;
 
       @KeepFieldType
       LogsViewModel com_novavpn_app_viewmodel_LogsViewModel2;
@@ -592,11 +601,13 @@ public final class DaggerNovaVpnApplication_HiltComponents_SingletonC {
 
     private final SingletonCImpl singletonCImpl = this;
 
+    private Provider<ProvisioningApi> provisioningApiProvider;
+
     private Provider<SecureStorage> secureStorageProvider;
 
-    private Provider<LogRepository> logRepositoryProvider;
+    private Provider<LocationReportingWorker_AssistedFactory> locationReportingWorker_AssistedFactoryProvider;
 
-    private Provider<ProvisioningApi> provisioningApiProvider;
+    private Provider<LogRepository> logRepositoryProvider;
 
     private Provider<Backend> provideBackendProvider;
 
@@ -608,17 +619,28 @@ public final class DaggerNovaVpnApplication_HiltComponents_SingletonC {
 
     }
 
+    private Map<String, javax.inject.Provider<WorkerAssistedFactory<? extends ListenableWorker>>> mapOfStringAndProviderOfWorkerAssistedFactoryOf(
+        ) {
+      return Collections.<String, javax.inject.Provider<WorkerAssistedFactory<? extends ListenableWorker>>>singletonMap("com.novavpn.app.work.LocationReportingWorker", ((Provider) locationReportingWorker_AssistedFactoryProvider));
+    }
+
+    private HiltWorkerFactory hiltWorkerFactory() {
+      return WorkerFactoryModule_ProvideFactoryFactory.provideFactory(mapOfStringAndProviderOfWorkerAssistedFactoryOf());
+    }
+
     @SuppressWarnings("unchecked")
     private void initialize(final ApplicationContextModule applicationContextModuleParam) {
-      this.secureStorageProvider = DoubleCheck.provider(new SwitchingProvider<SecureStorage>(singletonCImpl, 0));
-      this.logRepositoryProvider = DoubleCheck.provider(new SwitchingProvider<LogRepository>(singletonCImpl, 1));
-      this.provisioningApiProvider = DoubleCheck.provider(new SwitchingProvider<ProvisioningApi>(singletonCImpl, 2));
-      this.provideBackendProvider = DoubleCheck.provider(new SwitchingProvider<Backend>(singletonCImpl, 3));
-      this.provideNovaTunnelProvider = DoubleCheck.provider(new SwitchingProvider<NovaTunnel>(singletonCImpl, 4));
+      this.provisioningApiProvider = DoubleCheck.provider(new SwitchingProvider<ProvisioningApi>(singletonCImpl, 1));
+      this.secureStorageProvider = DoubleCheck.provider(new SwitchingProvider<SecureStorage>(singletonCImpl, 2));
+      this.locationReportingWorker_AssistedFactoryProvider = SingleCheck.provider(new SwitchingProvider<LocationReportingWorker_AssistedFactory>(singletonCImpl, 0));
+      this.logRepositoryProvider = DoubleCheck.provider(new SwitchingProvider<LogRepository>(singletonCImpl, 3));
+      this.provideBackendProvider = DoubleCheck.provider(new SwitchingProvider<Backend>(singletonCImpl, 4));
+      this.provideNovaTunnelProvider = DoubleCheck.provider(new SwitchingProvider<NovaTunnel>(singletonCImpl, 5));
     }
 
     @Override
     public void injectNovaVpnApplication(NovaVpnApplication novaVpnApplication) {
+      injectNovaVpnApplication2(novaVpnApplication);
     }
 
     @Override
@@ -641,6 +663,11 @@ public final class DaggerNovaVpnApplication_HiltComponents_SingletonC {
       return new ServiceCBuilder(singletonCImpl);
     }
 
+    private NovaVpnApplication injectNovaVpnApplication2(NovaVpnApplication instance) {
+      NovaVpnApplication_MembersInjector.injectWorkerFactory(instance, hiltWorkerFactory());
+      return instance;
+    }
+
     private static final class SwitchingProvider<T> implements Provider<T> {
       private final SingletonCImpl singletonCImpl;
 
@@ -655,19 +682,27 @@ public final class DaggerNovaVpnApplication_HiltComponents_SingletonC {
       @Override
       public T get() {
         switch (id) {
-          case 0: // com.novavpn.app.security.SecureStorage 
-          return (T) new SecureStorage(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule));
+          case 0: // com.novavpn.app.work.LocationReportingWorker_AssistedFactory 
+          return (T) new LocationReportingWorker_AssistedFactory() {
+            @Override
+            public LocationReportingWorker create(Context context, WorkerParameters params) {
+              return new LocationReportingWorker(context, params, singletonCImpl.provisioningApiProvider.get(), singletonCImpl.secureStorageProvider.get());
+            }
+          };
 
-          case 1: // com.novavpn.app.data.LogRepository 
-          return (T) new LogRepository();
-
-          case 2: // com.novavpn.app.api.ProvisioningApi 
+          case 1: // com.novavpn.app.api.ProvisioningApi 
           return (T) new ProvisioningApi();
 
-          case 3: // com.wireguard.android.backend.Backend 
+          case 2: // com.novavpn.app.security.SecureStorage 
+          return (T) new SecureStorage(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule));
+
+          case 3: // com.novavpn.app.data.LogRepository 
+          return (T) new LogRepository();
+
+          case 4: // com.wireguard.android.backend.Backend 
           return (T) AppModule_ProvideBackendFactory.provideBackend(ApplicationContextModule_ProvideContextFactory.provideContext(singletonCImpl.applicationContextModule));
 
-          case 4: // com.novavpn.app.vpn.NovaTunnel 
+          case 5: // com.novavpn.app.vpn.NovaTunnel 
           return (T) AppModule_ProvideNovaTunnelFactory.provideNovaTunnel();
 
           default: throw new AssertionError(id);

@@ -33,6 +33,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.Constraints
+import androidx.work.NetworkType
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
 data class VpnUiState(
@@ -69,6 +74,15 @@ class VpnViewModel @Inject constructor(
 
     private var trafficStatsJob: kotlinx.coroutines.Job? = null
     private var stateCheckJob: kotlinx.coroutines.Job? = null
+    private val workManager: WorkManager? by lazy { 
+        try {
+            WorkManager.getInstance(context)
+        } catch (e: IllegalStateException) {
+            Logger.w(e, "WorkManager not initialized yet")
+            null
+        }
+    }
+    private val LOCATION_WORK_TAG = "location_reporting"
 
     init {
         tunnel.setStateListener { newState ->
@@ -94,6 +108,8 @@ class VpnViewModel @Inject constructor(
                         _state.update { it.copy(connectionTestResult = testResult) }
                         // Start polling traffic stats
                         startTrafficStatsPolling()
+                        // Start periodic location reporting
+                        startLocationReporting()
                     }
                     Tunnel.State.DOWN -> {
                         // Only update to DOWN if we're actually disconnecting, not if it's just a state check issue
@@ -103,6 +119,7 @@ class VpnViewModel @Inject constructor(
                         
                         if (!vpnActuallyActive) {
                             stopTrafficStatsPolling()
+                            stopLocationReporting()
                             stopVpnNotificationService()
                             val wasDisconnecting = _state.value.connectionState == ConnectionState.Disconnecting
                             
@@ -575,6 +592,100 @@ class VpnViewModel @Inject constructor(
     private fun stopTrafficStatsPolling() {
         trafficStatsJob?.cancel()
         trafficStatsJob = null
+    }
+
+    /** Start periodic location reporting every 5 minutes */
+    private fun startLocationReporting() {
+        val wm = workManager ?: run {
+            Logger.w("WorkManager not available, skipping location reporting setup")
+            // Still schedule immediate reports via coroutine
+            scheduleImmediateLocationReport()
+            return
+        }
+        
+        try {
+            // Cancel any existing location reporting work
+            wm.cancelAllWorkByTag(LOCATION_WORK_TAG)
+            
+            // Create constraints: require network connection
+            val constraints = Constraints.Builder()
+                .setRequiredNetworkType(NetworkType.CONNECTED)
+                .build()
+            
+            // Create periodic work request: every 15 minutes (Android's minimum for periodic work)
+            // Note: Android enforces minimum 15 minutes for PeriodicWorkRequest
+            // For more frequent updates (5 minutes), we'd need to use OneTimeWorkRequest with chaining
+            val locationWorkRequest = PeriodicWorkRequestBuilder<com.novavpn.app.work.LocationReportingWorker>(
+                15, TimeUnit.MINUTES  // Minimum allowed is 15 minutes
+            )
+                .setConstraints(constraints)
+                .addTag(LOCATION_WORK_TAG)
+                .build()
+            
+            wm.enqueue(locationWorkRequest)
+            Logger.d("VpnViewModel: Started periodic location reporting (every 15 minutes)")
+            
+            // For 5-minute intervals, also schedule immediate work and chain it
+            scheduleImmediateLocationReport()
+        } catch (e: Exception) {
+            Logger.e(e, "VpnViewModel: Failed to start location reporting")
+            // Still try immediate reports
+            scheduleImmediateLocationReport()
+        }
+    }
+
+    /** Schedule immediate location report and chain for 5-minute intervals */
+    private fun scheduleImmediateLocationReport() {
+        viewModelScope.launch {
+            // Report immediately
+            reportLocationNow()
+            
+            // Then schedule recurring 5-minute reports
+            // This allows us to report every 5 minutes despite Android's 15-minute minimum for periodic work
+            repeat(Int.MAX_VALUE) { // Continue until disconnected
+                delay(5 * 60 * 1000L) // Wait 5 minutes
+                if (_state.value.connectionState == ConnectionState.Connected) {
+                    reportLocationNow()
+                } else {
+                    return@launch // Stop if disconnected
+                }
+            }
+        }
+    }
+
+    /** Report location immediately */
+    private suspend fun reportLocationNow() {
+        try {
+            if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                return
+            }
+            
+            val privateKeyBase64 = secureStorage.getWireGuardPrivateKeyBase64() ?: return
+            val publicKey = WireGuardKeyGenerator.getPublicKeyFromPrivate(privateKeyBase64)
+            
+            val lm = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? android.location.LocationManager
+            val loc = lm?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                ?: lm?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+            
+            if (loc != null && loc.latitude != 0.0 && loc.longitude != 0.0) {
+                withContext(Dispatchers.IO) {
+                    provisioningApi.reportLocation(publicKey, loc.latitude, loc.longitude)
+                }
+            }
+        } catch (e: Exception) {
+            Logger.w(e, "VpnViewModel: Failed to report location immediately")
+        }
+    }
+
+    /** Stop periodic location reporting */
+    private fun stopLocationReporting() {
+        val wm = workManager ?: return
+        try {
+            wm.cancelAllWorkByTag(LOCATION_WORK_TAG)
+            Logger.d("VpnViewModel: Stopped periodic location reporting")
+        } catch (e: Exception) {
+            Logger.w(e, "VpnViewModel: Failed to stop location reporting")
+        }
     }
 
     /** Read traffic statistics from WireGuard interface */

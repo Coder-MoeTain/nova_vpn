@@ -55,7 +55,8 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
         </receiver>
-        <receiver
+
+        <service
             android:name="com.novavpn.app.vpn.VpnTileService"
             android:exported="true"
             android:icon="@drawable/ic_vpn_tile"
@@ -64,8 +65,7 @@
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE" />
             </intent-filter>
-        </receiver>
-
+        </service>
         <service
             android:name="com.wireguard.android.backend.GoBackend$VpnService"
             android:exported="true"
@@ -88,13 +88,12 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- Disable WorkManager auto-initialization so we can initialize it manually with Hilt -->
         <provider
             android:name="androidx.startup.InitializationProvider"
             android:authorities="com.novavpn.app.androidx-startup"
             android:exported="false" >
-            <meta-data
-                android:name="androidx.work.WorkManagerInitializer"
-                android:value="androidx.startup" />
             <meta-data
                 android:name="androidx.emoji2.text.EmojiCompatInitializer"
                 android:value="androidx.startup" />

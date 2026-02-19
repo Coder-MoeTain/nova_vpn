@@ -37,7 +37,7 @@ class VpnNotificationService : Service() {
                 val rxBytes = intent.getLongExtra(EXTRA_RX_BYTES, 0L)
                 val txBytes = intent.getLongExtra(EXTRA_TX_BYTES, 0L)
                 val status = intent.getStringExtra(EXTRA_STATUS) ?: "Connected"
-                updateNotification(rxBytes, txBytes, status)
+                updateNotification(status, rxBytes, txBytes)
             }
             else -> {
                 // Start foreground service with initial notification

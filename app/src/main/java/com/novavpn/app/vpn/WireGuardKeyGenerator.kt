@@ -19,4 +19,19 @@ object WireGuardKeyGenerator {
             throw RuntimeException("WireGuard key generation failed", e)
         }
     }
+
+    /**
+     * Gets the public key from a private key.
+     */
+    fun getPublicKeyFromPrivate(privateKeyBase64: String): String {
+        return try {
+            // WireGuardKey constructor takes private key and derives public key
+            val key = WireGuardKey(privateKeyBase64)
+            key.base64PublicKey
+        } catch (e: InvalidPrivateKeyException) {
+            throw RuntimeException("Failed to get public key from private key", e)
+        } catch (e: Exception) {
+            throw RuntimeException("Failed to get public key from private key", e)
+        }
+    }
 }

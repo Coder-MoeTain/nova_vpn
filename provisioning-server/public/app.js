@@ -127,6 +127,24 @@
       });
   }
 
+  function banPeer(publicKey) {
+    closeAllDropdowns();
+    if (!confirm('Ban this peer? This will disconnect them immediately and prevent them from reconnecting to the server.')) return;
+    hideError();
+    fetch('/api/peers/ban', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ publicKey: publicKey }),
+    })
+      .then(function (res) {
+        if (!res.ok) return res.json().then(function (b) { throw new Error(b.error || b.detail || res.status); });
+        return load();
+      })
+      .catch(function (err) {
+        showError(err.message || 'Failed to ban peer');
+      });
+  }
+
   function revoke(publicKey) {
     closeAllDropdowns();
     if (!confirm('Revoke this peer? This will remove it from WireGuard and the database.')) return;
@@ -211,8 +229,9 @@
         peersBody.innerHTML = '';
         data.peers.forEach(function (p) {
           const tr = document.createElement('tr');
-          const statusClass = p.online ? 'status-online' : 'status-offline';
-          const statusText = p.online ? 'Online' : 'Offline';
+          const isBanned = p.banned === true;
+          const statusClass = isBanned ? 'status-banned' : (p.online ? 'status-online' : 'status-offline');
+          const statusText = isBanned ? 'Banned' : (p.online ? 'Online' : 'Offline');
           const deviceName = p.deviceName || p.clientIp || '—';
           const deviceOverride = p.deviceNameOverride || null;
           const locationText = p.location || '—';
@@ -222,6 +241,9 @@
           const traffic = (p.trafficRx != null && p.trafficTx != null) ? (p.trafficRx + ' / ' + p.trafficTx) : '—';
           const phone = p.phoneNumber || '—';
           const remoteIp = p.remoteIp || p.endpointIp || '—';
+          if (isBanned) {
+            tr.classList.add('banned-peer');
+          }
           tr.innerHTML =
             '<td class="status"><span class="status-dot ' + statusClass + '" title="' + statusText + '"></span> ' + statusText + '</td>' +
             '<td class="device">' + escapeHtml(deviceName) + '</td>' +
@@ -238,6 +260,7 @@
             '<div class="action-dropdown">' +
             '<button type="button" class="dropdown-item" data-action="rename">Rename device</button>' +
             '<button type="button" class="dropdown-item" data-action="delete">Delete</button>' +
+            '<button type="button" class="dropdown-item" data-action="ban"' + (isBanned ? ' disabled style="opacity: 0.5; cursor: not-allowed;"' : '') + '>Ban' + (isBanned ? ' (Already banned)' : '') + '</button>' +
             '<button type="button" class="dropdown-item" data-action="history">Location history</button>' +
             '</div>' +
             '</div>' +
@@ -249,15 +272,32 @@
             e.stopPropagation();
             toggleActionDropdown(actionBtn, p.publicKey, deviceName);
           });
-          dropdown.querySelector('[data-action="rename"]').addEventListener('click', function () {
-            openRenameModal(p.publicKey, deviceName);
-          });
-          dropdown.querySelector('[data-action="delete"]').addEventListener('click', function () {
-            deletePeer(p.publicKey);
-          });
-          dropdown.querySelector('[data-action="history"]').addEventListener('click', function () {
-            openLocationHistoryModal(p.publicKey, deviceName);
-          });
+          const renameBtn = dropdown.querySelector('[data-action="rename"]');
+          if (renameBtn) {
+            renameBtn.addEventListener('click', function () {
+              openRenameModal(p.publicKey, deviceName);
+            });
+          }
+          const deleteBtn = dropdown.querySelector('[data-action="delete"]');
+          if (deleteBtn) {
+            deleteBtn.addEventListener('click', function () {
+              deletePeer(p.publicKey);
+            });
+          }
+          const banBtn = dropdown.querySelector('[data-action="ban"]');
+          if (banBtn) {
+            banBtn.addEventListener('click', function () {
+              if (!this.disabled) {
+                banPeer(p.publicKey);
+              }
+            });
+          }
+          const historyBtn = dropdown.querySelector('[data-action="history"]');
+          if (historyBtn) {
+            historyBtn.addEventListener('click', function () {
+              openLocationHistoryModal(p.publicKey, deviceName);
+            });
+          }
           const revokeBtn = tr.querySelector('.btn-revoke');
           revokeBtn.addEventListener('click', function () {
             revoke(p.publicKey);

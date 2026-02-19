@@ -16,9 +16,27 @@ else require('dotenv').config({ path: localEnv });
 const express = require('express');
 const os = require('os');
 const { execSync } = require('child_process');
+const helmet = require('helmet');
 const db = require('./db');
+const { provisionLimiter, apiLimiter, locationReportLimiter, healthLimiter } = require('./middleware/rateLimit');
+const { validateProvision, validateReportLocation, validateUpdatePeer, validateDeletePeer, validateBanPeer, validateLocationHistory } = require('./middleware/validation');
 
 const app = express();
+
+// IMPORTANT: If browser forces HTTPS due to HSTS cache, you MUST clear browser HSTS cache
+// The server only runs on HTTP (port 3000), so HTTPS requests will fail
+// See HTTPS_FIX.md for instructions on clearing HSTS cache
+
+// Security headers (helmet) - minimal configuration to avoid HTTPS issues
+// Disable CSP and other headers that might force HTTPS upgrades
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable CSP to prevent HTTPS upgrade issues
+  crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: false,
+  crossOriginResourcePolicy: false,
+  strictTransportSecurity: false, // Never send HSTS header
+}));
+
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
@@ -190,28 +208,44 @@ function authMiddleware(req, res, next) {
   next();
 }
 
-app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
+// CORS configuration (allow all origins for public API, restrict in production)
+const cors = require('cors');
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*', // Set CORS_ORIGIN in .env to restrict origins
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+  credentials: false
+}));
+
+// Serve static files BEFORE auth middleware (CSS, JS, images must be accessible)
+if (fs.existsSync(PUBLIC_DIR)) {
+  // Add headers to prevent HTTPS upgrade for static files
+  app.use(express.static(PUBLIC_DIR, {
+    setHeaders: (res, path) => {
+      // Explicitly set Content-Type for CSS and JS
+      if (path.endsWith('.css')) {
+        res.setHeader('Content-Type', 'text/css');
+      } else if (path.endsWith('.js')) {
+        res.setHeader('Content-Type', 'application/javascript');
+      }
+      // Prevent any HTTPS upgrade headers
+      res.removeHeader('Strict-Transport-Security');
+      res.removeHeader('Upgrade-Insecure-Requests');
+    }
+  }));
+}
 
 // Ensure only one provision at a time so each device gets a unique IP (no race)
 let provisionLock = Promise.resolve();
 
 // Public API (for the Android app)
-app.post('/provision', (req, res) => {
-  const publicKey = req.body?.publicKey;
-  if (!publicKey || !isValidPublicKey(publicKey)) {
-    return res.status(400).json({ error: 'Missing or invalid publicKey (base64, 44 chars)' });
-  }
+app.post('/provision', provisionLimiter, validateProvision, (req, res) => {
+  const publicKey = req.body.publicKey.trim();
   if (!WG_SERVER_PUBLIC_KEY) {
     return res.status(500).json({ error: 'Server misconfigured: WG_SERVER_PUBLIC_KEY not set' });
   }
 
-  const keyTrimmed = publicKey.trim();
+  const keyTrimmed = publicKey; // Already trimmed by validation
 
   provisionLock = provisionLock.then(async () => {
     loadState();
@@ -219,6 +253,10 @@ app.post('/provision', (req, res) => {
     let existing = null;
     if (db.isEnabled()) {
       existing = await db.getPeerByPublicKey(keyTrimmed);
+      // Check if peer is banned
+      if (existing && existing.banned) {
+        return res.status(403).json({ error: 'This device has been banned from connecting to the server' });
+      }
       if (existing) index = parseInt(existing.clientIp.split('.').pop(), 10);
       else index = await db.getNextClientIndex();
     } else {
@@ -241,12 +279,13 @@ app.post('/provision', (req, res) => {
       return;
     }
 
-    const deviceName = (req.body?.deviceName || '').trim().slice(0, 64) || null;
-    const hostname = (req.body?.hostname || '').trim().slice(0, 64) || null;
-    const model = (req.body?.model || '').trim().slice(0, 64) || null;
-    const phoneNumber = (req.body?.phoneNumber || req.body?.phone || '').trim().slice(0, 32) || null;
-    const lat = req.body?.latitude != null ? Number(req.body.latitude) : (req.body?.lat != null ? Number(req.body.lat) : null);
-    const lng = req.body?.longitude != null ? Number(req.body.longitude) : (req.body?.lng != null ? Number(req.body.lng) : null);
+    // Values already validated and sanitized by validation middleware
+    const deviceName = req.body.deviceName || null;
+    const hostname = req.body.hostname || null;
+    const model = req.body.model || null;
+    const phoneNumber = req.body.phoneNumber || req.body.phone || null;
+    const lat = req.body.latitude != null ? Number(req.body.latitude) : (req.body.lat != null ? Number(req.body.lat) : null);
+    const lng = req.body.longitude != null ? Number(req.body.longitude) : (req.body.lng != null ? Number(req.body.lng) : null);
     const latitude = typeof lat === 'number' && !Number.isNaN(lat) ? lat : null;
     const longitude = typeof lng === 'number' && !Number.isNaN(lng) ? lng : null;
 
@@ -302,25 +341,25 @@ app.post('/provision', (req, res) => {
   });
 });
 
-app.get('/health', (req, res) => {
+app.get('/health', healthLimiter, (req, res) => {
   res.json({ ok: true, service: 'novavpn-provisioning' });
 });
 
 // Public: app reports current location (no auth) for location history
-app.post('/report-location', (req, res) => {
-  const publicKey = (req.body?.publicKey || '').trim();
-  if (!publicKey || !isValidPublicKey(publicKey)) {
-    return res.status(400).json({ error: 'Missing or invalid publicKey' });
-  }
-  const lat = req.body?.latitude != null ? Number(req.body.latitude) : (req.body?.lat != null ? Number(req.body.lat) : null);
-  const lng = req.body?.longitude != null ? Number(req.body.longitude) : (req.body?.lng != null ? Number(req.body.lng) : null);
-  if (typeof lat !== 'number' || Number.isNaN(lat) || typeof lng !== 'number' || Number.isNaN(lng)) {
+app.post('/report-location', locationReportLimiter, validateReportLocation, (req, res) => {
+  const publicKey = req.body.publicKey.trim();
+  const lat = req.body.latitude != null ? Number(req.body.latitude) : (req.body.lat != null ? Number(req.body.lat) : null);
+  const lng = req.body.longitude != null ? Number(req.body.longitude) : (req.body.lng != null ? Number(req.body.lng) : null);
+  const latitude = typeof lat === 'number' && !Number.isNaN(lat) ? lat : null;
+  const longitude = typeof lng === 'number' && !Number.isNaN(lng) ? lng : null;
+  
+  if (latitude === null || longitude === null) {
     return res.status(400).json({ error: 'Missing or invalid latitude/longitude' });
   }
   if (!db.isEnabled()) {
     return res.json({ ok: true, saved: false, message: 'Location history disabled (MySQL not configured)' });
   }
-  db.addLocationHistory(publicKey, lat, lng).then(() => {
+  db.addLocationHistory(publicKey, latitude, longitude).then(() => {
     res.json({ ok: true, saved: true });
   }).catch(err => {
     console.error('report-location error:', err);
@@ -393,9 +432,17 @@ app.post('/provision-openvpn', (req, res) => {
   }
 });
 
+// Serve static files BEFORE auth middleware (CSS, JS, images)
+if (fs.existsSync(PUBLIC_DIR)) {
+  app.use(express.static(PUBLIC_DIR));
+}
+
 // Management API and UI (optional auth)
-app.use('/api', authMiddleware);
-app.use('/', authMiddleware);
+app.use('/api', apiLimiter, authMiddleware);
+// Apply auth to root route only for HTML (static assets are served above without auth)
+app.get('/', authMiddleware, (req, res) => {
+  res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
+});
 
 app.get('/api/peers', (req, res) => {
   loadState();
@@ -417,6 +464,8 @@ app.get('/api/peers', (req, res) => {
       ...p,
       deviceName: deviceBase,
       deviceNameOverride: deviceOverride,
+      banned: p.banned || false,
+      bannedAt: p.bannedAt || null,
       endpoint: s.endpoint || null,
       endpointIp: s.endpointIp || null,
       remoteIp: s.endpointIp || null,
@@ -469,12 +518,9 @@ app.get('/api/peers', (req, res) => {
   }
 });
 
-app.patch('/api/peers', (req, res) => {
-  const publicKey = (req.body?.publicKey || '').trim();
-  const deviceName = (req.body?.deviceName || '').trim().slice(0, 128) || null;
-  if (!publicKey || !isValidPublicKey(publicKey)) {
-    return res.status(400).json({ error: 'Missing or invalid publicKey' });
-  }
+app.patch('/api/peers', validateUpdatePeer, (req, res) => {
+  const publicKey = req.body.publicKey.trim();
+  const deviceName = req.body.deviceName ? req.body.deviceName.trim().slice(0, 128) || null : null;
   if (db.isEnabled()) {
     db.updateDeviceName(publicKey, deviceName).then(updated => {
       if (!updated) return res.status(404).json({ error: 'Peer not found' });
@@ -493,15 +539,12 @@ app.patch('/api/peers', (req, res) => {
   res.json({ ok: true, deviceName: deviceName || null });
 });
 
-app.get('/api/peers/:publicKey/location-history', (req, res) => {
-  const publicKey = (req.params.publicKey || '').trim();
-  if (!publicKey || !isValidPublicKey(publicKey)) {
-    return res.status(400).json({ error: 'Missing or invalid publicKey' });
-  }
+app.get('/api/peers/:publicKey/location-history', validateLocationHistory, (req, res) => {
+  const publicKey = req.params.publicKey.trim();
   if (!db.isEnabled()) {
     return res.json({ locations: [], message: 'Location history requires MySQL' });
   }
-  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+  const limit = req.query.limit ? Math.min(parseInt(req.query.limit, 10), 500) : 100;
   db.getLocationHistory(publicKey, limit).then(locations => {
     res.json({ locations });
   }).catch(err => {
@@ -531,11 +574,56 @@ app.delete('/api/peers/database-only', (req, res) => {
   });
 });
 
-app.delete('/api/peers', (req, res) => {
-  const publicKey = (req.body?.publicKey || req.query?.publicKey || '').trim();
-  if (!publicKey || !isValidPublicKey(publicKey)) {
-    return res.status(400).json({ error: 'Missing or invalid publicKey' });
-  }
+// Ban peer: removes from WireGuard and marks as banned in database
+app.post('/api/peers/ban', validateBanPeer, (req, res) => {
+  const publicKey = req.body.publicKey.trim();
+
+  loadState();
+  const peersList = db.isEnabled() ? null : state.peers;
+  const idx = peersList ? state.peers.findIndex(p => p.publicKey === publicKey) : -1;
+  const checkExists = db.isEnabled()
+    ? db.getPeerByPublicKey(publicKey).then(p => !!p)
+    : Promise.resolve(idx !== -1);
+
+  checkExists.then(exists => {
+    if (!exists) return res.status(404).json({ error: 'Peer not found' });
+    
+    // Remove peer from WireGuard
+    try {
+      if (USE_CONFIG_FILE) {
+        removePeerFromConfigFile(publicKey);
+      } else {
+        removePeerWithWgSet(publicKey);
+      }
+    } catch (err) {
+      console.error('Failed to remove peer from WireGuard:', err.message);
+      return res.status(500).json({ error: 'Failed to remove peer from WireGuard', detail: err.message });
+    }
+    
+    // Mark as banned in database
+    if (db.isEnabled()) {
+      return db.banPeer(publicKey).then(() => {
+        console.log('Banned peer', publicKey.slice(0, 8) + '...');
+        res.json({ ok: true, message: 'Peer banned successfully' });
+      }).catch(err => {
+        console.error('Failed to ban peer in database:', err);
+        res.status(500).json({ error: 'Failed to ban peer in database' });
+      });
+    }
+    
+    // For file-based state, we can't track banned status, so just revoke
+    state.peers.splice(idx, 1);
+    saveState();
+    console.log('Revoked peer (file-based, cannot track ban)', publicKey.slice(0, 8) + '...');
+    res.json({ ok: true, message: 'Peer revoked (ban tracking requires MySQL)' });
+  }).catch(err => {
+    console.error('Ban peer error:', err);
+    res.status(500).json({ error: 'Failed to ban peer' });
+  });
+});
+
+app.delete('/api/peers', validateDeletePeer, (req, res) => {
+  const publicKey = (req.body.publicKey || req.query.publicKey || '').trim();
 
   loadState();
   const peersList = db.isEnabled() ? null : state.peers;
@@ -572,13 +660,6 @@ app.delete('/api/peers', (req, res) => {
   });
 });
 
-if (fs.existsSync(PUBLIC_DIR)) {
-  app.use(express.static(PUBLIC_DIR));
-  app.get('/', (req, res) => {
-    res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
-  });
-}
-
 loadState();
 
 async function start() {
@@ -593,6 +674,8 @@ async function start() {
   }
   app.listen(PORT, '0.0.0.0', () => {
     console.log('NovaVPN provisioning API listening on port', PORT, '(0.0.0.0)');
+    console.log('⚠️  Server is running on HTTP (not HTTPS)');
+    console.log('   Access at: http://' + (process.env.WG_ENDPOINT_HOST || 'localhost') + ':' + PORT);
     console.log('POST /provision — API for app');
     if (db.isEnabled()) console.log('POST /report-location — App location reports (saved to MySQL)');
     if (fs.existsSync(PUBLIC_DIR)) console.log('GET / — Management UI');

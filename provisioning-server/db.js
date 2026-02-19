@@ -39,12 +39,39 @@ async function initSchema(conn) {
       phone_number VARCHAR(32) NULL,
       latitude DOUBLE NULL,
       longitude DOUBLE NULL,
+      banned BOOLEAN NOT NULL DEFAULT FALSE,
+      banned_at DATETIME NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_public_key (public_key),
-      INDEX idx_client_ip (client_ip)
+      INDEX idx_client_ip (client_ip),
+      INDEX idx_banned (banned)
     )
   `);
+  // Add banned columns if they don't exist (for existing databases)
+  // MySQL doesn't support IF NOT EXISTS for ALTER TABLE, so we check first
+  try {
+    const [columns] = await conn.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'peers' 
+      AND COLUMN_NAME IN ('banned', 'banned_at')
+    `);
+    const existingColumns = columns.map(c => c.COLUMN_NAME);
+    
+    if (!existingColumns.includes('banned')) {
+      await conn.query(`ALTER TABLE peers ADD COLUMN banned BOOLEAN NOT NULL DEFAULT FALSE`);
+      // Add index after adding column
+      await conn.query(`ALTER TABLE peers ADD INDEX idx_banned (banned)`).catch(() => {});
+    }
+    if (!existingColumns.includes('banned_at')) {
+      await conn.query(`ALTER TABLE peers ADD COLUMN banned_at DATETIME NULL`);
+    }
+  } catch (err) {
+    console.error('Error adding banned columns:', err.message);
+    // Continue anyway - columns might already exist or table might not exist yet
+  }
   await conn.query(`
     CREATE TABLE IF NOT EXISTS location_history (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -102,9 +129,33 @@ async function setNextClientIndex(index) {
 async function getPeers() {
   const conn = await (await getPool()).getConnection();
   try {
-    const [rows] = await conn.query(
-      'SELECT public_key AS publicKey, client_ip AS clientIp, device_name_override AS deviceNameOverride, hostname, model, phone_number AS phoneNumber, latitude, longitude, created_at AS createdAt FROM peers ORDER BY id'
-    );
+    // Check if banned columns exist
+    const [columns] = await conn.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'peers' 
+      AND COLUMN_NAME IN ('banned', 'banned_at')
+    `);
+    const hasBannedColumn = columns.some(c => c.COLUMN_NAME === 'banned');
+    const hasBannedAtColumn = columns.some(c => c.COLUMN_NAME === 'banned_at');
+    
+    // Build query based on available columns
+    const selectFields = [
+      'public_key AS publicKey',
+      'client_ip AS clientIp',
+      'device_name_override AS deviceNameOverride',
+      'hostname',
+      'model',
+      'phone_number AS phoneNumber',
+      'latitude',
+      'longitude',
+      ...(hasBannedColumn ? ['banned'] : []),
+      ...(hasBannedAtColumn ? ['banned_at AS bannedAt'] : []),
+      'created_at AS createdAt'
+    ].join(', ');
+    
+    const [rows] = await conn.query(`SELECT ${selectFields} FROM peers ORDER BY id`);
     return rows.map(r => ({
       publicKey: r.publicKey,
       clientIp: r.clientIp,
@@ -115,6 +166,8 @@ async function getPeers() {
       phoneNumber: r.phoneNumber,
       latitude: r.latitude,
       longitude: r.longitude,
+      banned: hasBannedColumn ? (r.banned === 1 || r.banned === true) : false,
+      bannedAt: hasBannedAtColumn && r.bannedAt ? new Date(r.bannedAt).toISOString() : null,
       createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
     }));
   } finally {
@@ -125,10 +178,33 @@ async function getPeers() {
 async function getPeerByPublicKey(publicKey) {
   const conn = await (await getPool()).getConnection();
   try {
-    const [rows] = await conn.query(
-      'SELECT public_key AS publicKey, client_ip AS clientIp, device_name_override AS deviceNameOverride, hostname, model, phone_number AS phoneNumber, latitude, longitude, created_at AS createdAt FROM peers WHERE public_key = ?',
-      [publicKey]
-    );
+    // Check if banned columns exist
+    const [columns] = await conn.query(`
+      SELECT COLUMN_NAME 
+      FROM INFORMATION_SCHEMA.COLUMNS 
+      WHERE TABLE_SCHEMA = DATABASE() 
+      AND TABLE_NAME = 'peers' 
+      AND COLUMN_NAME IN ('banned', 'banned_at')
+    `);
+    const hasBannedColumn = columns.some(c => c.COLUMN_NAME === 'banned');
+    const hasBannedAtColumn = columns.some(c => c.COLUMN_NAME === 'banned_at');
+    
+    // Build query based on available columns
+    const selectFields = [
+      'public_key AS publicKey',
+      'client_ip AS clientIp',
+      'device_name_override AS deviceNameOverride',
+      'hostname',
+      'model',
+      'phone_number AS phoneNumber',
+      'latitude',
+      'longitude',
+      ...(hasBannedColumn ? ['banned'] : []),
+      ...(hasBannedAtColumn ? ['banned_at AS bannedAt'] : []),
+      'created_at AS createdAt'
+    ].join(', ');
+    
+    const [rows] = await conn.query(`SELECT ${selectFields} FROM peers WHERE public_key = ?`, [publicKey]);
     if (!rows.length) return null;
     const r = rows[0];
     return {
@@ -141,6 +217,8 @@ async function getPeerByPublicKey(publicKey) {
       phoneNumber: r.phoneNumber,
       latitude: r.latitude,
       longitude: r.longitude,
+      banned: hasBannedColumn ? (r.banned === 1 || r.banned === true) : false,
+      bannedAt: hasBannedAtColumn && r.bannedAt ? new Date(r.bannedAt).toISOString() : null,
       createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
     };
   } finally {
@@ -226,6 +304,19 @@ async function deletePeer(publicKey) {
   }
 }
 
+async function banPeer(publicKey) {
+  const conn = await (await getPool()).getConnection();
+  try {
+    const [r] = await conn.query(
+      'UPDATE peers SET banned = TRUE, banned_at = NOW() WHERE public_key = ?',
+      [publicKey]
+    );
+    return r.affectedRows > 0;
+  } finally {
+    conn.release();
+  }
+}
+
 module.exports = {
   isEnabled,
   ensureSchema,
@@ -239,4 +330,5 @@ module.exports = {
   addLocationHistory,
   getLocationHistory,
   deletePeer,
+  banPeer,
 };

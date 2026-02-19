@@ -8,6 +8,7 @@ import com.novavpn.app.viewmodel.SettingsViewModel_HiltModules;
 import com.novavpn.app.viewmodel.VpnViewModel_HiltModules;
 import com.novavpn.app.vpn.BootReceiver;
 import com.novavpn.app.vpn.VpnTileService_GeneratedInjector;
+import com.novavpn.app.work.LocationReportingWorker_HiltModule;
 import dagger.Binds;
 import dagger.Component;
 import dagger.Module;
@@ -136,6 +137,7 @@ public final class NovaVpnApplication_HiltComponents {
           ApplicationContextModule.class,
           HiltWrapper_FragmentGetContextFix_FragmentGetContextFixModule.class,
           HiltWrapper_WorkerFactoryModule.class,
+          LocationReportingWorker_HiltModule.class,
           ActivityRetainedCBuilderModule.class,
           ServiceCBuilderModule.class
       }

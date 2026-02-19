@@ -92,6 +92,34 @@ class ProvisioningApi @Inject constructor() {
         return body.config
     }
 
+    /** Report current location to server for location history tracking. */
+    suspend fun reportLocation(publicKey: String, latitude: Double, longitude: Double): Boolean {
+        val url = "$baseUrl/report-location"
+        return try {
+            Logger.d("ProvisioningApi: POST $url (location update)")
+            val requestBody = json.encodeToString(LocationReportRequest(
+                publicKey = publicKey,
+                latitude = latitude,
+                longitude = longitude
+            ))
+            val response = httpClient.post(url) {
+                contentType(ContentType.Application.Json)
+                setBody(requestBody)
+            }
+            if (response.status.value >= 400) {
+                val errorBody = response.bodyAsText()
+                Logger.w("ProvisioningApi: ${response.status.value} $errorBody")
+                false
+            } else {
+                Logger.d("ProvisioningApi: location reported successfully")
+                true
+            }
+        } catch (e: Exception) {
+            Logger.w(e, "ProvisioningApi: failed to report location")
+            false
+        }
+    }
+
     private fun parseServerError(body: String): String {
         return try {
             val err = json.decodeFromString<ServerErrorBody>(body)
@@ -130,3 +158,10 @@ private data class OpenVpnProvisionResponse(val config: String)
 
 @kotlinx.serialization.Serializable
 private data class ServerErrorBody(val error: String? = null, val detail: String? = null)
+
+@kotlinx.serialization.Serializable
+data class LocationReportRequest(
+    val publicKey: String,
+    val latitude: Double,
+    val longitude: Double
+)
