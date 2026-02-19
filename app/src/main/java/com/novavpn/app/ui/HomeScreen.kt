@@ -73,6 +73,11 @@ fun HomeScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
+    // Check VPN state when screen is displayed (in case VPN is active but UI state wasn't restored)
+    LaunchedEffect(Unit) {
+        viewModel.checkTunnelStateOnResume()
+    }
+
     LaunchedEffect(autoConnectRequested) {
         if (autoConnectRequested) tryConnect()
     }
@@ -303,11 +308,12 @@ private fun ConnectionCard(
             }
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                when (state.connectionState) {
-                    is ConnectionState.Connecting -> "Connecting…"
-                    is ConnectionState.Connected -> "Connected"
-                    is ConnectionState.Disconnecting -> "Disconnecting…"
-                    is ConnectionState.Error -> (state.connectionState as ConnectionState.Error).message
+                when {
+                    state.isCheckingState -> "Checking…"
+                    state.connectionState is ConnectionState.Connecting -> "Connecting…"
+                    state.connectionState is ConnectionState.Connected -> "Connected"
+                    state.connectionState is ConnectionState.Disconnecting -> "Disconnecting…"
+                    state.connectionState is ConnectionState.Error -> (state.connectionState as ConnectionState.Error).message
                     else -> state.successMessage ?: "Tap to connect"
                 },
                 style = MaterialTheme.typography.titleLarge,

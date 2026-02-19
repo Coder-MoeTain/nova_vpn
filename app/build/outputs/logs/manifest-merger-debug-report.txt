@@ -1,20 +1,20 @@
 -- Merging decision tree log ---
 provider#androidx.core.content.FileProvider
-INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:63:9-71:20
+INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:68:9-76:20
 	android:grantUriPermissions
-		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:67:13-47
+		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:72:13-47
 	android:authorities
 		INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml
-		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:65:13-64
+		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:70:13-64
 	android:exported
-		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:66:13-37
+		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:71:13-37
 	android:name
-		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:64:13-62
+		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:69:13-62
 manifest
-ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:2:1-73:12
-INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:2:1-73:12
-INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:2:1-73:12
-INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:2:1-73:12
+ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:2:1-78:12
+INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:2:1-78:12
+INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:2:1-78:12
+INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:2:1-78:12
 MERGED from [androidx.work:work-runtime-ktx:2.9.0] C:\Users\linuxer\.gradle\caches\8.9\transforms\c0929b32e4d5d8345e97bcd05e25e3e2\transformed\work-runtime-ktx-2.9.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.hilt:hilt-work:1.2.0] C:\Users\linuxer\.gradle\caches\8.9\transforms\63bfe49e4c8ed011f522237c9f5ae716\transformed\hilt-work-1.2.0\AndroidManifest.xml:17:1-22:12
 MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\linuxer\.gradle\caches\8.9\transforms\286711bb36b292c0e5925f53214d7a12\transformed\work-runtime-2.9.0\AndroidManifest.xml:17:1-145:12
@@ -147,8 +147,8 @@ ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:11:5-90
 	android:name
 		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:11:22-87
 application
-ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:13:5-72:19
-INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:13:5-72:19
+ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:13:5-77:19
+INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:13:5-77:19
 MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\linuxer\.gradle\caches\8.9\transforms\286711bb36b292c0e5925f53214d7a12\transformed\work-runtime-2.9.0\AndroidManifest.xml:28:5-143:19
 MERGED from [androidx.work:work-runtime:2.9.0] C:\Users\linuxer\.gradle\caches\8.9\transforms\286711bb36b292c0e5925f53214d7a12\transformed\work-runtime-2.9.0\AndroidManifest.xml:28:5-143:19
 MERGED from [androidx.compose.ui:ui-tooling-android:1.6.8] C:\Users\linuxer\.gradle\caches\8.9\transforms\8457f2afcaa97d12b986823a6f7e7c34\transformed\ui-tooling-release\AndroidManifest.xml:22:5-26:19
@@ -264,12 +264,20 @@ action#android.net.VpnService
 ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:59:17-65
 	android:name
 		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:59:25-62
-meta-data#android.support.FILE_PROVIDER_PATHS
-ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:68:13-70:54
-	android:resource
-		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:70:17-51
+service#com.novavpn.app.vpn.VpnNotificationService
+ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:63:9-66:40
+	android:enabled
+		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:65:13-35
+	android:exported
+		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:66:13-37
 	android:name
-		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:69:17-67
+		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:64:13-55
+meta-data#android.support.FILE_PROVIDER_PATHS
+ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:73:13-75:54
+	android:resource
+		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:75:17-51
+	android:name
+		ADDED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml:74:17-67
 uses-sdk
 INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml reason: use-sdk injection requested
 INJECTED from D:\My Projects\nova_vpn\app\src\main\AndroidManifest.xml

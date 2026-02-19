@@ -6,6 +6,7 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.Manifest
+import com.novavpn.app.vpn.VpnNotificationService
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import android.os.Build
@@ -45,7 +46,9 @@ data class VpnUiState(
     val connectionTestResult: String? = null,
     /** Traffic statistics: received and transmitted bytes */
     val rxBytes: Long = 0,
-    val txBytes: Long = 0
+    val txBytes: Long = 0,
+    /** Flag to indicate state check is in progress (prevents showing wrong state) */
+    val isCheckingState: Boolean = false
 )
 
 @HiltViewModel
@@ -79,9 +82,12 @@ class VpnViewModel @Inject constructor(
                                 errorHint = null,
                                 successMessage = "Connected",
                                 vpnPrepareIntent = null,
-                                connectionTestResult = "Checking…"
+                                connectionTestResult = "Checking…",
+                                isCheckingState = false
                             )
                         }
+                        // Start foreground service with notification
+                        startVpnNotificationService("Connected")
                         // Give the tunnel a moment to apply routes before testing
                         delay(2500)
                         val testResult = withContext(Dispatchers.IO) { testConnectionThroughVpn() }
@@ -90,16 +96,36 @@ class VpnViewModel @Inject constructor(
                         startTrafficStatsPolling()
                     }
                     Tunnel.State.DOWN -> {
-                        stopTrafficStatsPolling()
-                        _state.update { s ->
-                            s.copy(
-                                connectionState = if (s.connectionState == ConnectionState.Disconnecting)
-                                    ConnectionState.Idle else s.connectionState,
-                                vpnPrepareIntent = null,
-                                connectionTestResult = null,
-                                rxBytes = 0,
-                                txBytes = 0
-                            )
+                        // Only update to DOWN if we're actually disconnecting, not if it's just a state check issue
+                        // Check if VPN is actually active via system before setting to DOWN
+                        val vpnActuallyActive = isAnyVpnActive()
+                        val hasConfig = secureStorage.getWireGuardConfigJson() != null
+                        
+                        if (!vpnActuallyActive) {
+                            stopTrafficStatsPolling()
+                            stopVpnNotificationService()
+                            val wasDisconnecting = _state.value.connectionState == ConnectionState.Disconnecting
+                            
+                            _state.update { s ->
+                                s.copy(
+                                    connectionState = if (wasDisconnecting)
+                                        ConnectionState.Idle else s.connectionState,
+                                    vpnPrepareIntent = null,
+                                    connectionTestResult = null,
+                                    rxBytes = 0,
+                                    txBytes = 0
+                                )
+                            }
+                            
+                            // If VPN went down but we have config and user didn't explicitly disconnect, auto-reconnect
+                            if (hasConfig && !wasDisconnecting) {
+                                Logger.d("VPN disconnected unexpectedly, attempting auto-reconnect")
+                                delay(2000) // Wait a bit before reconnecting
+                                autoReconnect()
+                            }
+                        } else {
+                            // Backend says DOWN but system says VPN is active - keep UI as Connected
+                            Logger.d("Backend reports DOWN but VPN is active via system, keeping Connected state")
                         }
                     }
                     else -> _state.update { it.copy(vpnPrepareIntent = null) }
@@ -110,21 +136,81 @@ class VpnViewModel @Inject constructor(
         viewModelScope.launch { 
             checkTunnelStateOnce()
             // Also periodically check state while app is running (in case VPN state changes externally)
+            // This also handles auto-reconnect if VPN disconnects
             startPeriodicStateCheck()
+            
+            // If we have a config but VPN is not connected, try to reconnect
+            delay(2000) // Wait a bit for initial state check
+            val hasConfig = secureStorage.getWireGuardConfigJson() != null
+            val currentState = _state.value.connectionState
+            val vpnActive = isAnyVpnActive()
+            
+            if (hasConfig && currentState !is ConnectionState.Connected && !vpnActive) {
+                Logger.d("App reopened with config but VPN disconnected, attempting auto-reconnect")
+                autoReconnect()
+            }
         }
     }
     
-    /** Periodically check VPN state to keep UI in sync */
+    /** Periodically check VPN state to keep UI in sync and auto-reconnect if needed */
     private fun startPeriodicStateCheck() {
         stateCheckJob?.cancel()
         stateCheckJob = viewModelScope.launch {
             while (true) {
-                delay(5000) // Check every 5 seconds
-                // Only update if we think we're disconnected but VPN is actually active
+                delay(10000) // Check every 10 seconds
                 val currentState = _state.value.connectionState
-                if (currentState !is ConnectionState.Connected && currentState !is ConnectionState.Connecting) {
-                    checkTunnelStateOnce()
+                val hasConfig = secureStorage.getWireGuardConfigJson() != null
+                
+                // If we have a config (meaning user connected before), check if VPN should be active
+                if (hasConfig) {
+                    if (currentState !is ConnectionState.Connected && currentState !is ConnectionState.Connecting && currentState !is ConnectionState.Disconnecting) {
+                        // Check if VPN is actually active via system
+                        val vpnActive = isAnyVpnActive()
+                        if (vpnActive) {
+                            // VPN is active but UI shows disconnected - restore UI state
+                            Logger.d("VPN is active but UI shows disconnected, restoring state")
+                            checkTunnelStateOnce()
+                        } else {
+                            // VPN is down but we have config - auto-reconnect
+                            Logger.d("VPN disconnected but config exists, auto-reconnecting...")
+                            autoReconnect()
+                        }
+                    } else if (currentState is ConnectionState.Connected) {
+                        // Verify VPN is still actually active
+                        val vpnActive = isAnyVpnActive()
+                        if (!vpnActive) {
+                            Logger.d("UI shows connected but VPN is down, reconnecting...")
+                            autoReconnect()
+                        }
+                    }
                 }
+            }
+        }
+    }
+    
+    /** Auto-reconnect VPN if we have a saved config */
+    private fun autoReconnect() {
+        viewModelScope.launch {
+            try {
+                val hasConfig = secureStorage.getWireGuardConfigJson() != null
+                if (!hasConfig) {
+                    Logger.d("No config found, cannot auto-reconnect")
+                    return@launch
+                }
+                
+                // Check if VPN permission is still granted
+                val prepareIntent = VpnService.prepare(context)
+                if (prepareIntent != null) {
+                    Logger.d("VPN permission needed for auto-reconnect")
+                    // Can't auto-reconnect without permission, user needs to grant it
+                    return@launch
+                }
+                
+                Logger.d("Auto-reconnecting VPN...")
+                // Use doConnect() which will use the saved config
+                doConnect()
+            } catch (e: Exception) {
+                Logger.e(e, "Auto-reconnect failed")
             }
         }
     }
@@ -137,9 +223,13 @@ class VpnViewModel @Inject constructor(
      */
     private suspend fun checkTunnelStateOnce() {
         try {
+            // Set checking flag to prevent showing wrong state
+            _state.update { it.copy(isCheckingState = true) }
+            
             val hasConfig = secureStorage.getWireGuardConfigJson() != null
             if (!hasConfig) {
                 Logger.d("No config found, VPN not connected")
+                _state.update { it.copy(isCheckingState = false) }
                 return
             }
             
@@ -165,7 +255,7 @@ class VpnViewModel @Inject constructor(
             val vpnActive = vpnActiveViaBackend || vpnActiveViaSystem
             
             if (vpnActive) {
-                Logger.d("VPN is active, restoring UI state to Connected")
+                Logger.d("VPN is active, restoring UI state to Connected (backend=$backendState, system=$vpnActiveViaSystem)")
                 _state.update { s ->
                     s.copy(
                         connectionState = ConnectionState.Connected,
@@ -173,15 +263,43 @@ class VpnViewModel @Inject constructor(
                         successMessage = "Connected",
                         lastError = null,
                         errorHint = null,
-                        vpnPrepareIntent = null
+                        vpnPrepareIntent = null,
+                        isCheckingState = false
                     )
                 }
+                startVpnNotificationService("Connected")
                 startTrafficStatsPolling()
             } else {
-                Logger.d("VPN not detected as active (backend=$backendState, system=$vpnActiveViaSystem)")
+                Logger.d("VPN not detected as active (backend=$backendState, system=$vpnActiveViaSystem, hasConfig=$hasConfig)")
+                // If we have config but VPN not detected, check one more time after a delay
+                // Sometimes the system needs more time to report VPN state
+                if (hasConfig) {
+                    delay(1000)
+                    val retryVpnActive = isAnyVpnActive()
+                    if (retryVpnActive) {
+                        Logger.d("VPN detected on retry, restoring UI state to Connected")
+                        _state.update { s ->
+                            s.copy(
+                                connectionState = ConnectionState.Connected,
+                                connectionTestResult = "Connected",
+                                successMessage = "Connected",
+                                lastError = null,
+                                errorHint = null,
+                                vpnPrepareIntent = null,
+                                isCheckingState = false
+                            )
+                        }
+                        startTrafficStatsPolling()
+                    } else {
+                        _state.update { it.copy(isCheckingState = false) }
+                    }
+                } else {
+                    _state.update { it.copy(isCheckingState = false) }
+                }
             }
         } catch (e: Exception) {
             Logger.e(e, "Could not restore VPN state")
+            _state.update { it.copy(isCheckingState = false) }
         }
     }
 
@@ -214,21 +332,17 @@ class VpnViewModel @Inject constructor(
             }
             
             // Method 2: Check all networks for VPN transport
+            // Be lenient - if ANY VPN transport exists, consider it active
+            // (WireGuard VPNs persist even if backend state is unclear)
             val networks = cm.allNetworks
             if (networks != null) {
                 for (network in networks) {
                     val caps = cm.getNetworkCapabilities(network) ?: continue
                     if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) {
-                        // Check if this VPN network is validated (actually working)
-                        val isValidated = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                            caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                        } else {
-                            true // Assume validated on older Android
-                        }
-                        if (isValidated) {
-                            Logger.d("VPN detected via allNetworks scan (validated)")
-                            return true
-                        }
+                        // Don't require validation - if VPN transport exists, it's likely active
+                        // This is important because after app restart, validation might not be immediate
+                        Logger.d("VPN detected via allNetworks scan (VPN transport found)")
+                        return true
                     }
                 }
             }
@@ -447,6 +561,8 @@ class VpnViewModel @Inject constructor(
                 try {
                     val stats = getTrafficStats()
                     _state.update { it.copy(rxBytes = stats.first, txBytes = stats.second) }
+                    // Update notification with stats
+                    updateVpnNotification(stats.first, stats.second)
                 } catch (e: Exception) {
                     Logger.d("Failed to get traffic stats: ${e.message}")
                 }
@@ -596,5 +712,49 @@ class VpnViewModel @Inject constructor(
         } catch (_: Exception) {}
 
         return Pair(0L, 0L)
+    }
+
+    /** Start VPN notification service */
+    private fun startVpnNotificationService(status: String) {
+        try {
+            val intent = Intent(context, VpnNotificationService::class.java).apply {
+                action = VpnNotificationService.ACTION_UPDATE_STATS
+                putExtra(VpnNotificationService.EXTRA_STATUS, status)
+                putExtra(VpnNotificationService.EXTRA_RX_BYTES, _state.value.rxBytes)
+                putExtra(VpnNotificationService.EXTRA_TX_BYTES, _state.value.txBytes)
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        } catch (e: Exception) {
+            Logger.e(e, "Failed to start VPN notification service")
+        }
+    }
+
+    /** Update VPN notification with stats */
+    private fun updateVpnNotification(rxBytes: Long, txBytes: Long) {
+        try {
+            val intent = Intent(context, VpnNotificationService::class.java).apply {
+                action = VpnNotificationService.ACTION_UPDATE_STATS
+                putExtra(VpnNotificationService.EXTRA_STATUS, "Connected")
+                putExtra(VpnNotificationService.EXTRA_RX_BYTES, rxBytes)
+                putExtra(VpnNotificationService.EXTRA_TX_BYTES, txBytes)
+            }
+            context.startService(intent)
+        } catch (e: Exception) {
+            Logger.d("Failed to update VPN notification: ${e.message}")
+        }
+    }
+
+    /** Stop VPN notification service */
+    private fun stopVpnNotificationService() {
+        try {
+            val intent = Intent(context, VpnNotificationService::class.java)
+            context.stopService(intent)
+        } catch (e: Exception) {
+            Logger.d("Failed to stop VPN notification service: ${e.message}")
+        }
     }
 }
