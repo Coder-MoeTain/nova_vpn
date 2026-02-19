@@ -12,10 +12,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import com.novavpn.app.ui.theme.NovaVpnTheme
 import com.novavpn.app.vpn.BootReceiver
 import com.novavpn.app.viewmodel.VpnViewModel
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -28,18 +30,36 @@ class MainActivity : ComponentActivity() {
         vpnViewModel.onVpnPrepareResult(result.resultCode == RESULT_OK)
     }
 
+    private val locationAndPhonePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { result ->
+        vpnViewModel.onPermissionsResult(result)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         if (intent?.getBooleanExtra(EXTRA_CONNECT_NOW, false) == true) {
             vpnViewModel.connect()
         }
+        // Check tunnel state when activity is created
+        lifecycleScope.launch {
+            vpnViewModel.checkTunnelStateOnResume()
+        }
         setContent {
             NovaVpnTheme {
                 val state by vpnViewModel.state.collectAsState()
+                val permissionRequest by vpnViewModel.permissionRequest.collectAsState()
                 LaunchedEffect(state.vpnPrepareIntent) {
                     state.vpnPrepareIntent?.let { intent ->
                         vpnPermissionLauncher.launch(intent)
                         vpnViewModel.clearVpnPrepareIntent()
+                    }
+                }
+                LaunchedEffect(permissionRequest) {
+                    permissionRequest?.let { perms ->
+                        if (perms.isNotEmpty()) {
+                            locationAndPhonePermissionLauncher.launch(perms)
+                        }
                     }
                 }
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -51,6 +71,14 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Check tunnel state when activity resumes to restore connection state
+        lifecycleScope.launch {
+            vpnViewModel.checkTunnelStateOnResume()
         }
     }
 

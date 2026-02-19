@@ -464,18 +464,18 @@ public final class DaggerNovaVpnApplication_HiltComponents_SingletonC {
     private static final class LazyClassKeyProvider {
       static String com_novavpn_app_viewmodel_LogsViewModel = "com.novavpn.app.viewmodel.LogsViewModel";
 
-      static String com_novavpn_app_viewmodel_SettingsViewModel = "com.novavpn.app.viewmodel.SettingsViewModel";
-
       static String com_novavpn_app_viewmodel_VpnViewModel = "com.novavpn.app.viewmodel.VpnViewModel";
+
+      static String com_novavpn_app_viewmodel_SettingsViewModel = "com.novavpn.app.viewmodel.SettingsViewModel";
 
       @KeepFieldType
       LogsViewModel com_novavpn_app_viewmodel_LogsViewModel2;
 
       @KeepFieldType
-      SettingsViewModel com_novavpn_app_viewmodel_SettingsViewModel2;
+      VpnViewModel com_novavpn_app_viewmodel_VpnViewModel2;
 
       @KeepFieldType
-      VpnViewModel com_novavpn_app_viewmodel_VpnViewModel2;
+      SettingsViewModel com_novavpn_app_viewmodel_SettingsViewModel2;
     }
 
     private static final class SwitchingProvider<T> implements Provider<T> {

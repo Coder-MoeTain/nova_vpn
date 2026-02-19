@@ -50,7 +50,7 @@ npm install
 Create or edit `.env`:
 
 ```bash
-cp .env.example .env
+cp ../.env.example .env   # or from repo root: cp .env.example .env
 nano .env
 ```
 

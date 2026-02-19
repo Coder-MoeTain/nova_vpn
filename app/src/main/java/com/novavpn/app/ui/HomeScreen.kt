@@ -87,7 +87,7 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(24.dp))
             ConnectionCard(state = state, tryConnect = tryConnect, tryDisconnect = tryDisconnect, onClearError = viewModel::clearError)
             Spacer(modifier = Modifier.height(24.dp))
-            StatsCard()
+            StatsCard(state = state)
         }
     }
 }
@@ -313,6 +313,18 @@ private fun ConnectionCard(
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface
             )
+            if (state.connectionState is ConnectionState.Connected && state.connectionTestResult != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    state.connectionTestResult,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = when (state.connectionTestResult) {
+                        "Internet OK" -> MaterialTheme.colorScheme.primary
+                        "Checking…" -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    }
+                )
+            }
             if (state.lastError != null) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -342,6 +354,12 @@ private fun ConnectionCard(
                     ) {
                         Text("Disconnect")
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        "",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                    )
                 }
                 is ConnectionState.Error -> {
                     androidx.compose.material3.Button(
@@ -366,7 +384,7 @@ private fun ConnectionCard(
 }
 
 @Composable
-private fun StatsCard() {
+private fun StatsCard(state: VpnUiState) {
     Card(
         modifier = Modifier
             .padding(horizontal = 24.dp)
@@ -374,18 +392,88 @@ private fun StatsCard() {
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f))
     ) {
-        Column(modifier = Modifier.padding(20.dp)) {
+        Column(
+            modifier = Modifier.padding(20.dp)
+        ) {
             Text(
-                "WireGuard VPN",
-                style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                "Data Statistics",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                "Tap Connect to establish a VPN tunnel. Your device gets a unique key and config from the provisioning server.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-            )
+            Spacer(modifier = Modifier.height(16.dp))
+            if (state.connectionState is ConnectionState.Connected) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.ArrowDownward,
+                                contentDescription = "Download",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                "Download",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            formatBytes(state.rxBytes),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.ArrowUpward,
+                                contentDescription = "Upload",
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Text(
+                                "Upload",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            formatBytes(state.txBytes),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.secondary
+                        )
+                    }
+                }
+            } else {
+                Text(
+                    "Connect to VPN to see statistics",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                )
+            }
         }
+    }
+}
+
+private fun formatBytes(bytes: Long): String {
+    return when {
+        bytes >= 1_000_000_000 -> String.format("%.2f GB", bytes / 1_000_000_000.0)
+        bytes >= 1_000_000 -> String.format("%.2f MB", bytes / 1_000_000.0)
+        bytes >= 1_000 -> String.format("%.2f KB", bytes / 1_000.0)
+        else -> "$bytes B"
     }
 }

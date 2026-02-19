@@ -73,11 +73,16 @@ sysctl -p /etc/sysctl.d/99-wireguard.conf 2>/dev/null || sysctl -w net.ipv4.ip_f
 systemctl enable wg-quick@wg0
 systemctl restart wg-quick@wg0
 
-# Open firewall if ufw is active
+# Open firewall and allow forwarding if ufw is active
 if command -v ufw &>/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
   ufw allow ${WG_PORT}/udp
+  # Allow forwarded traffic both ways: VPN -> internet and replies -> VPN
+  ufw route allow in on wg0 out on ${OUT_IF}
+  ufw route allow in on ${OUT_IF} out on wg0
+  # Ensure UFW allows IP forwarding (for existing installs)
+  grep -q 'net/ipv4/ip_forward=1' /etc/ufw/sysctl.conf 2>/dev/null || echo 'net/ipv4/ip_forward=1' >> /etc/ufw/sysctl.conf
   ufw reload
-  echo "Allowed UDP ${WG_PORT} in ufw"
+  echo "Allowed UDP ${WG_PORT} and route wg0 <-> ${OUT_IF} in ufw"
 fi
 
 echo ""

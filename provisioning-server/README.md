@@ -17,6 +17,27 @@ ssh root@srv1376664 'bash /tmp/install-wireguard-server.sh'
 
 Or paste the script contents into an SSH terminal and run `sudo bash` (e.g. create the file with nano, paste, then `sudo bash install-wireguard-server.sh`). The script installs WireGuard, creates keys, configures `wg0` (port 64288, subnet 10.66.66.0/24), enables forwarding and NAT, and prints the server public key for your `.env`.
 
+### Generate QR code for the official WireGuard app
+
+On the **server**, from the `provisioning-server` directory (with `.env` and WireGuard set up):
+
+```bash
+# Install qrencode if needed
+sudo apt install qrencode
+
+# From provisioning-server directory
+cd ~/provisioning-server/scripts
+sed -i 's/\r$//' gen-wireguard-qr.sh
+sudo bash gen-wireguard-qr.sh
+```
+
+This creates a **new** client (new key, next free IP), adds it to WireGuard, and prints:
+- The client config (wg-quick format)
+- A **QR code in the terminal** (scan with the official WireGuard app: **Add tunnel** → **Scan from QR code**)
+- A PNG file `wireguard-qr-<index>.png` in the project dir (open or transfer to your phone to scan)
+
+Optional: pass a client index to avoid using the auto-incremented one: `sudo bash gen-wireguard-qr.sh 5` (uses 10.66.66.5).
+
 ## Requirements
 
 - **Node.js 18+**
@@ -30,7 +51,7 @@ Or paste the script contents into an SSH terminal and run `sudo bash` (e.g. crea
 
    ```bash
    cd provisioning-server
-   cp .env.example .env
+   cp ../.env.example .env   # or from repo root: cp .env.example .env
    # Edit .env:
    # - WG_SERVER_PUBLIC_KEY: run on the WireGuard server: wg show wg0 public-key
    # - WG_ENDPOINT_HOST is already set to 76.13.189.118 (your server); change if different.
@@ -121,7 +142,20 @@ The server stores `state.json` in this directory:
 - **nextClientIndex** — next client IP index (e.g. 3 → 10.66.66.3).
 - **peers** — list of provisioned peers (`publicKey`, `clientIp`, `createdAt`) for the management UI and revoke.
 
+Each device must have a **unique client IP**. The server uses a lock so only one provision runs at a time and assigns a new index per new public key. If an existing key provisions again (e.g. same device, cleared app cache), it gets the same IP. If you previously had two devices with the same IP (only first had internet): revoke the second peer in the UI, then on the second device clear config and connect again so it gets a new unique IP.
+
 You can edit or reset `state.json` if needed. Revoking a peer removes it from WireGuard and from this list but does not reuse its IP (nextClientIndex is not decreased).
+
+### Migrating to MySQL
+
+If you were using file-based state and then enable MySQL (set `MYSQL_HOST`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE` in `.env`), run the migration once to copy existing peers into the database:
+
+```bash
+cd ~/provisioning-server   # or your provisioning-server path
+node scripts/migrate-state-to-mysql.js
+```
+
+This reads `state.json`, creates the MySQL tables if needed, inserts all peers and their latest location into the DB, and sets `next_client_index`. After that, the server uses MySQL; you can keep or remove `state.json`.
 
 ## Firewall (connection timeout from the app)
 

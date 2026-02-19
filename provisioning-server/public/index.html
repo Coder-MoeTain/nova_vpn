@@ -31,8 +31,14 @@
       <table id="peers-table" class="peers-table" hidden>
         <thead>
           <tr>
-            <th>Public key</th>
+            <th>Status</th>
+            <th>Device</th>
+            <th>Custom Name</th>
+            <th>Phone</th>
             <th>Client IP</th>
+            <th>Remote IP</th>
+            <th>Location</th>
+            <th>Traffic ↓ / ↑</th>
             <th>Created</th>
             <th></th>
           </tr>
@@ -41,6 +47,32 @@
       </table>
       <p id="empty" class="empty" hidden>No peers yet. Devices appear here when they use the app to connect.</p>
     </section>
+
+    <div id="modal-rename" class="modal" hidden>
+      <div class="modal-content">
+        <h3>Rename device</h3>
+        <p class="modal-peer-key" id="rename-peer-key"></p>
+        <input type="text" id="rename-input" class="modal-input" placeholder="Device name" maxlength="128" />
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="rename-cancel">Cancel</button>
+          <button type="button" class="btn-primary" id="rename-save">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="modal-location-history" class="modal" hidden>
+      <div class="modal-content modal-wide">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+          <h3 style="margin: 0;">Location history <span id="location-history-device-name" class="modal-subtitle"></span></h3>
+          <button type="button" id="location-history-close-x" style="background: transparent; border: none; color: #8b949e; font-size: 1.5rem; cursor: pointer; padding: 0 0.5rem; line-height: 1;" title="Close">×</button>
+        </div>
+        <p class="modal-peer-key" id="location-history-peer-key"></p>
+        <div id="location-history-list" class="location-history-list"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" id="location-history-close">Close</button>
+        </div>
+      </div>
+    </div>
 
     <footer>
       <a href="/health" target="_blank">Health check</a>

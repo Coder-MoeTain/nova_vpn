@@ -6,12 +6,17 @@
  * Web UI at / for listing and revoking peers (optional admin auth).
  */
 
-require('dotenv').config();
-const express = require('express');
-const fs = require('fs');
-const os = require('os');
+// Load .env from project root or from provisioning-server (single .env for the project)
 const path = require('path');
+const fs = require('fs');
+const rootEnv = path.join(__dirname, '..', '.env');
+const localEnv = path.join(__dirname, '.env');
+if (fs.existsSync(rootEnv)) require('dotenv').config({ path: rootEnv });
+else require('dotenv').config({ path: localEnv });
+const express = require('express');
+const os = require('os');
 const { execSync } = require('child_process');
+const db = require('./db');
 
 const app = express();
 app.use(express.json());
@@ -28,7 +33,7 @@ const WG_INTERFACE = process.env.WG_INTERFACE || 'wg0';
 const WG_NETWORK_IPv4 = process.env.WG_NETWORK_IPv4 || '10.66.66';
 const WG_NETWORK_IPv6 = process.env.WG_NETWORK_IPv6 || 'fd42:42:42';
 let nextClientIndex = parseInt(process.env.WG_NEXT_CLIENT_INDEX || '3', 10);
-const WG_DNS = process.env.WG_DNS || '1.1.1.1, 1.0.0.1';
+const WG_DNS = (process.env.WG_DNS || '1.1.1.1,1.0.0.1').trim().replace(/\s*,\s*/g, ','); // comma-separated, no spaces
 const WG_ALLOWED_IPS = process.env.WG_ALLOWED_IPS || '0.0.0.0/0, ::/0';
 const WG_PERSISTENT_KEEPALIVE = parseInt(process.env.WG_PERSISTENT_KEEPALIVE || '25', 10);
 const USE_CONFIG_FILE = process.env.WG_USE_CONFIG_FILE === '1';
@@ -118,6 +123,56 @@ function removePeerFromConfigFile(publicKey) {
   console.log('Removed peer from', WG_CONFIG_PATH, '- reload WireGuard to apply.');
 }
 
+// Parse "wg show wg0 dump" for peer stats (endpoint, lastHandshake, rx, tx)
+function getWgPeerStats() {
+  const iface = WG_INTERFACE.replace(/[^a-zA-Z0-9_-]/g, '');
+  const out = execSync(`wg show ${iface} dump`, { encoding: 'utf8', maxBuffer: 65536 });
+  const lines = out.trim().split('\n');
+  const stats = {};
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split('\t');
+    if (parts.length < 8) continue;
+    const [pubKey, , endpoint, , lastHandshake, rxBytes, txBytes] = parts;
+    const endpointIp = endpoint ? endpoint.split(':')[0] : null;
+    stats[pubKey] = {
+      endpoint: endpoint || null,
+      endpointIp,
+      lastHandshake: lastHandshake === '0' ? null : parseInt(lastHandshake, 10),
+      rxBytes: parseInt(rxBytes, 10) || 0,
+      txBytes: parseInt(txBytes, 10) || 0,
+    };
+  }
+  return stats;
+}
+
+const ONLINE_MAX_AGE_SEC = 120; // consider online if handshake within 2 min
+
+function formatBytes(n) {
+  if (n >= 1073741824) return (n / 1073741824).toFixed(2) + ' GiB';
+  if (n >= 1048576) return (n / 1048576).toFixed(2) + ' MiB';
+  if (n >= 1024) return (n / 1024).toFixed(2) + ' KiB';
+  return n + ' B';
+}
+
+// Geo cache: ip -> { city, country, updatedAt }
+const geoCache = {};
+const GEO_CACHE_TTL_MS = 10 * 60 * 1000;
+
+function getGeoForIp(ip) {
+  if (!ip || ip === '0.0.0.0') return Promise.resolve(null);
+  const cached = geoCache[ip];
+  if (cached && Date.now() - cached.updatedAt < GEO_CACHE_TTL_MS) return Promise.resolve(cached);
+  return fetch(`http://ip-api.com/json/${ip}?fields=country,city,regionName`)
+    .then(r => r.json())
+    .then(data => {
+      if (data.country == null) return null;
+      const entry = { country: data.country, city: data.city || '', regionName: data.regionName || '', updatedAt: Date.now() };
+      geoCache[ip] = entry;
+      return entry;
+    })
+    .catch(() => null);
+}
+
 function authMiddleware(req, res, next) {
   if (!ADMIN_PASSWORD) return next();
   const auth = req.headers.authorization;
@@ -137,11 +192,14 @@ function authMiddleware(req, res, next) {
 
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
+
+// Ensure only one provision at a time so each device gets a unique IP (no race)
+let provisionLock = Promise.resolve();
 
 // Public API (for the Android app)
 app.post('/provision', (req, res) => {
@@ -153,47 +211,121 @@ app.post('/provision', (req, res) => {
     return res.status(500).json({ error: 'Server misconfigured: WG_SERVER_PUBLIC_KEY not set' });
   }
 
-  loadState();
-  const index = state.nextClientIndex;
-  const ipv4Only = `${WG_NETWORK_IPv4}.${index}/32`;
-  const clientAddress = getClientAddresses(index);
+  const keyTrimmed = publicKey.trim();
 
-  try {
-    if (USE_CONFIG_FILE) {
-      addPeerWithConfigFile(publicKey, ipv4Only);
+  provisionLock = provisionLock.then(async () => {
+    loadState();
+    let index;
+    let existing = null;
+    if (db.isEnabled()) {
+      existing = await db.getPeerByPublicKey(keyTrimmed);
+      if (existing) index = parseInt(existing.clientIp.split('.').pop(), 10);
+      else index = await db.getNextClientIndex();
     } else {
-      addPeerWithWgSet(publicKey, ipv4Only);
+      existing = state.peers.find(p => p.publicKey === keyTrimmed);
+      if (existing) index = parseInt(existing.clientIp.split('.').pop(), 10);
+      else { index = state.nextClientIndex; state.nextClientIndex = index + 1; }
     }
-  } catch (err) {
-    console.error('Failed to add peer:', err.message);
-    return res.status(500).json({ error: 'Failed to add peer to WireGuard', detail: err.message });
-  }
+    const ipv4Only = `${WG_NETWORK_IPv4}.${index}/32`;
+    const clientAddress = getClientAddresses(index);
 
-  state.nextClientIndex = index + 1;
-  state.peers.push({
-    publicKey: publicKey.trim(),
-    clientIp: `${WG_NETWORK_IPv4}.${index}`,
-    createdAt: new Date().toISOString(),
+    try {
+      if (USE_CONFIG_FILE) {
+        addPeerWithConfigFile(keyTrimmed, ipv4Only);
+      } else {
+        addPeerWithWgSet(keyTrimmed, ipv4Only);
+      }
+    } catch (err) {
+      console.error('Failed to add peer:', err.message);
+      res.status(500).json({ error: 'Failed to add peer to WireGuard', detail: err.message });
+      return;
+    }
+
+    const deviceName = (req.body?.deviceName || '').trim().slice(0, 64) || null;
+    const hostname = (req.body?.hostname || '').trim().slice(0, 64) || null;
+    const model = (req.body?.model || '').trim().slice(0, 64) || null;
+    const phoneNumber = (req.body?.phoneNumber || req.body?.phone || '').trim().slice(0, 32) || null;
+    const lat = req.body?.latitude != null ? Number(req.body.latitude) : (req.body?.lat != null ? Number(req.body.lat) : null);
+    const lng = req.body?.longitude != null ? Number(req.body.longitude) : (req.body?.lng != null ? Number(req.body.lng) : null);
+    const latitude = typeof lat === 'number' && !Number.isNaN(lat) ? lat : null;
+    const longitude = typeof lng === 'number' && !Number.isNaN(lng) ? lng : null;
+
+    if (!existing) {
+      const clientIp = `${WG_NETWORK_IPv4}.${index}`;
+      const peerRecord = {
+        publicKey: keyTrimmed,
+        clientIp,
+        deviceNameOverride: deviceName || null,
+        hostname: hostname || null,
+        model: model || null,
+        phoneNumber: phoneNumber || null,
+        latitude,
+        longitude,
+      };
+      if (db.isEnabled()) {
+        await db.upsertPeer(peerRecord);
+        await db.setNextClientIndex(index + 1);
+        if (latitude != null && longitude != null) await db.addLocationHistory(keyTrimmed, latitude, longitude);
+      } else {
+        state.peers.push({
+          publicKey: keyTrimmed,
+          clientIp,
+          deviceName: deviceName || null,
+          hostname: hostname || null,
+          model: model || null,
+          phoneNumber: phoneNumber || null,
+          latitude,
+          longitude,
+          createdAt: new Date().toISOString(),
+        });
+        saveState();
+      }
+    } else if (db.isEnabled() && (latitude != null && longitude != null)) {
+      await db.addLocationHistory(keyTrimmed, latitude, longitude);
+    }
+
+    const response = {
+      endpointHost: WG_ENDPOINT_HOST,
+      endpointPort: WG_ENDPOINT_PORT,
+      serverPublicKey: WG_SERVER_PUBLIC_KEY,
+      clientAddress,
+      dns: WG_DNS,
+      allowedIPs: WG_ALLOWED_IPS,
+      persistentKeepalive: WG_PERSISTENT_KEEPALIVE,
+      presharedKey: null,
+    };
+    console.log('Provisioned peer', keyTrimmed.slice(0, 8) + '...', '→', clientAddress, 'allowedIPs=', response.allowedIPs);
+    res.json(response);
+  }).catch(err => {
+    console.error('Provision error:', err);
+    if (!res.headersSent) res.status(500).json({ error: 'Provision failed', detail: err.message });
   });
-  saveState();
-
-  const response = {
-    endpointHost: WG_ENDPOINT_HOST,
-    endpointPort: WG_ENDPOINT_PORT,
-    serverPublicKey: WG_SERVER_PUBLIC_KEY,
-    clientAddress,
-    dns: WG_DNS,
-    allowedIPs: WG_ALLOWED_IPS,
-    persistentKeepalive: WG_PERSISTENT_KEEPALIVE,
-    presharedKey: null,
-  };
-
-  console.log('Provisioned peer', publicKey.slice(0, 8) + '...', '→', clientAddress);
-  res.json(response);
 });
 
 app.get('/health', (req, res) => {
   res.json({ ok: true, service: 'novavpn-provisioning' });
+});
+
+// Public: app reports current location (no auth) for location history
+app.post('/report-location', (req, res) => {
+  const publicKey = (req.body?.publicKey || '').trim();
+  if (!publicKey || !isValidPublicKey(publicKey)) {
+    return res.status(400).json({ error: 'Missing or invalid publicKey' });
+  }
+  const lat = req.body?.latitude != null ? Number(req.body.latitude) : (req.body?.lat != null ? Number(req.body.lat) : null);
+  const lng = req.body?.longitude != null ? Number(req.body.longitude) : (req.body?.lng != null ? Number(req.body.lng) : null);
+  if (typeof lat !== 'number' || Number.isNaN(lat) || typeof lng !== 'number' || Number.isNaN(lng)) {
+    return res.status(400).json({ error: 'Missing or invalid latitude/longitude' });
+  }
+  if (!db.isEnabled()) {
+    return res.json({ ok: true, saved: false, message: 'Location history disabled (MySQL not configured)' });
+  }
+  db.addLocationHistory(publicKey, lat, lng).then(() => {
+    res.json({ ok: true, saved: true });
+  }).catch(err => {
+    console.error('report-location error:', err);
+    res.status(500).json({ error: 'Failed to save location' });
+  });
 });
 
 // OpenVPN provisioning: always register route so app gets 503 + message instead of 404 when disabled
@@ -267,10 +399,135 @@ app.use('/', authMiddleware);
 
 app.get('/api/peers', (req, res) => {
   loadState();
-  res.json({
-    peers: state.peers,
-    nextClientIndex: state.nextClientIndex,
-    nextClientIp: `${WG_NETWORK_IPv4}.${state.nextClientIndex}`,
+  const fetchPeersAndRespond = (peersList, nextIdx) => {
+  let wgStats = {};
+  try {
+    wgStats = getWgPeerStats();
+  } catch (e) {
+    // wg not available or not root
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const peersWithStats = peersList.map((p, i) => {
+    const s = wgStats[p.publicKey] || {};
+    const lastHandshake = s.lastHandshake || null;
+    const online = lastHandshake != null && (now - lastHandshake) <= ONLINE_MAX_AGE_SEC;
+    const deviceOverride = (p.deviceNameOverride && String(p.deviceNameOverride).trim()) ? String(p.deviceNameOverride).trim() : null;
+    const deviceBase = (p.model && p.hostname) ? `${p.model} (${p.hostname})` : ((p.model || p.hostname) || `Device ${i + 1}`);
+    return {
+      ...p,
+      deviceName: deviceBase,
+      deviceNameOverride: deviceOverride,
+      endpoint: s.endpoint || null,
+      endpointIp: s.endpointIp || null,
+      remoteIp: s.endpointIp || null,
+      lastHandshake,
+      online,
+      rxBytes: s.rxBytes || 0,
+      txBytes: s.txBytes || 0,
+      trafficRx: formatBytes(s.rxBytes || 0),
+      trafficTx: formatBytes(s.txBytes || 0),
+      locationDevice: (p.latitude != null && p.longitude != null) ? { latitude: p.latitude, longitude: p.longitude } : null,
+    };
+  });
+  Promise.all(peersWithStats.map(p => {
+    if (p.locationDevice) return Promise.resolve({ ...p, location: `${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}`, locationGeo: null });
+    return getGeoForIp(p.endpointIp).then(geo => ({
+      ...p,
+      location: geo ? [geo.city, geo.regionName, geo.country].filter(Boolean).join(', ') : null,
+      locationGeo: geo,
+    }));
+  }))
+    .then(peersResolved => {
+      const peers = peersResolved.map(({ locationGeo, locationDevice, ...p }) => p);
+      res.json({
+        peers,
+        nextClientIndex: nextIdx,
+        nextClientIp: `${WG_NETWORK_IPv4}.${nextIdx}`,
+      });
+    })
+    .catch(err => {
+      console.error('Geo lookup error:', err);
+      const peers = peersWithStats.map(p => ({
+        ...p,
+        location: (p.locationDevice && p.latitude != null && p.longitude != null) ? `${p.latitude.toFixed(5)}, ${p.longitude.toFixed(5)}` : null,
+      }));
+      const out = peers.map(({ locationDevice, ...q }) => q);
+      res.json({
+        peers: out,
+        nextClientIndex: nextIdx,
+        nextClientIp: `${WG_NETWORK_IPv4}.${nextIdx}`,
+      });
+    });
+  };
+  if (db.isEnabled()) {
+    db.getPeers().then(peersList => db.getNextClientIndex().then(nextIdx => fetchPeersAndRespond(peersList, nextIdx))).catch(err => {
+      console.error('DB getPeers error:', err);
+      res.status(500).json({ error: 'Failed to load peers' });
+    });
+  } else {
+    fetchPeersAndRespond(state.peers, state.nextClientIndex);
+  }
+});
+
+app.patch('/api/peers', (req, res) => {
+  const publicKey = (req.body?.publicKey || '').trim();
+  const deviceName = (req.body?.deviceName || '').trim().slice(0, 128) || null;
+  if (!publicKey || !isValidPublicKey(publicKey)) {
+    return res.status(400).json({ error: 'Missing or invalid publicKey' });
+  }
+  if (db.isEnabled()) {
+    db.updateDeviceName(publicKey, deviceName).then(updated => {
+      if (!updated) return res.status(404).json({ error: 'Peer not found' });
+      res.json({ ok: true, deviceName: deviceName || null });
+    }).catch(err => {
+      console.error('PATCH peers error:', err);
+      res.status(500).json({ error: 'Failed to update device name' });
+    });
+    return;
+  }
+  loadState();
+  const p = state.peers.find(x => x.publicKey === publicKey);
+  if (!p) return res.status(404).json({ error: 'Peer not found' });
+  p.deviceName = deviceName;
+  saveState();
+  res.json({ ok: true, deviceName: deviceName || null });
+});
+
+app.get('/api/peers/:publicKey/location-history', (req, res) => {
+  const publicKey = (req.params.publicKey || '').trim();
+  if (!publicKey || !isValidPublicKey(publicKey)) {
+    return res.status(400).json({ error: 'Missing or invalid publicKey' });
+  }
+  if (!db.isEnabled()) {
+    return res.json({ locations: [], message: 'Location history requires MySQL' });
+  }
+  const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+  db.getLocationHistory(publicKey, limit).then(locations => {
+    res.json({ locations });
+  }).catch(err => {
+    console.error('location-history error:', err);
+    res.status(500).json({ error: 'Failed to load location history' });
+  });
+});
+
+// Delete from database only (keeps WireGuard peer active)
+app.delete('/api/peers/database-only', (req, res) => {
+  const publicKey = (req.body?.publicKey || req.query?.publicKey || '').trim();
+  if (!publicKey || !isValidPublicKey(publicKey)) {
+    return res.status(400).json({ error: 'Missing or invalid publicKey' });
+  }
+  if (!db.isEnabled()) {
+    return res.status(400).json({ error: 'Database-only delete requires MySQL' });
+  }
+  db.getPeerByPublicKey(publicKey).then(exists => {
+    if (!exists) return res.status(404).json({ error: 'Peer not found in database' });
+    return db.deletePeer(publicKey).then(() => {
+      console.log('Deleted peer from database', publicKey.slice(0, 8) + '...');
+      res.json({ ok: true });
+    });
+  }).catch(err => {
+    console.error('DELETE database-only error:', err);
+    res.status(500).json({ error: 'Failed to delete peer from database' });
   });
 });
 
@@ -281,26 +538,38 @@ app.delete('/api/peers', (req, res) => {
   }
 
   loadState();
-  const idx = state.peers.findIndex(p => p.publicKey === publicKey);
-  if (idx === -1) {
-    return res.status(404).json({ error: 'Peer not found in state' });
-  }
+  const peersList = db.isEnabled() ? null : state.peers;
+  const idx = peersList ? state.peers.findIndex(p => p.publicKey === publicKey) : -1;
+  const checkExists = db.isEnabled()
+    ? db.getPeerByPublicKey(publicKey).then(p => !!p)
+    : Promise.resolve(idx !== -1);
 
-  try {
-    if (USE_CONFIG_FILE) {
-      removePeerFromConfigFile(publicKey);
-    } else {
-      removePeerWithWgSet(publicKey);
+  checkExists.then(exists => {
+    if (!exists) return res.status(404).json({ error: 'Peer not found in state' });
+    try {
+      if (USE_CONFIG_FILE) {
+        removePeerFromConfigFile(publicKey);
+      } else {
+        removePeerWithWgSet(publicKey);
+      }
+    } catch (err) {
+      console.error('Failed to remove peer:', err.message);
+      return res.status(500).json({ error: 'Failed to remove peer', detail: err.message });
     }
-  } catch (err) {
-    console.error('Failed to remove peer:', err.message);
-    return res.status(500).json({ error: 'Failed to remove peer', detail: err.message });
-  }
-
-  state.peers.splice(idx, 1);
-  saveState();
-  console.log('Revoked peer', publicKey.slice(0, 8) + '...');
-  res.json({ ok: true });
+    if (db.isEnabled()) {
+      return db.deletePeer(publicKey).then(() => {
+        console.log('Revoked peer', publicKey.slice(0, 8) + '...');
+        res.json({ ok: true });
+      });
+    }
+    state.peers.splice(idx, 1);
+    saveState();
+    console.log('Revoked peer', publicKey.slice(0, 8) + '...');
+    res.json({ ok: true });
+  }).catch(err => {
+    console.error('DELETE peer error:', err);
+    res.status(500).json({ error: 'Failed to revoke peer' });
+  });
 });
 
 if (fs.existsSync(PUBLIC_DIR)) {
@@ -312,10 +581,24 @@ if (fs.existsSync(PUBLIC_DIR)) {
 
 loadState();
 
-app.listen(PORT, () => {
-  console.log('NovaVPN provisioning API listening on port', PORT);
-  console.log('POST /provision — API for app');
-  if (fs.existsSync(PUBLIC_DIR)) console.log('GET / — Management UI');
-  if (ADMIN_PASSWORD) console.log('Admin UI protected with Basic auth');
-  if (!WG_SERVER_PUBLIC_KEY) console.warn('Set WG_SERVER_PUBLIC_KEY in .env');
-});
+async function start() {
+  if (db.isEnabled()) {
+    try {
+      await db.ensureSchema();
+      console.log('MySQL connected and schema ready');
+    } catch (err) {
+      console.error('MySQL init failed:', err.message);
+      process.exit(1);
+    }
+  }
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log('NovaVPN provisioning API listening on port', PORT, '(0.0.0.0)');
+    console.log('POST /provision — API for app');
+    if (db.isEnabled()) console.log('POST /report-location — App location reports (saved to MySQL)');
+    if (fs.existsSync(PUBLIC_DIR)) console.log('GET / — Management UI');
+    if (ADMIN_PASSWORD) console.log('Admin UI protected with Basic auth');
+    if (!WG_SERVER_PUBLIC_KEY) console.warn('Set WG_SERVER_PUBLIC_KEY in .env');
+  });
+}
+
+start();

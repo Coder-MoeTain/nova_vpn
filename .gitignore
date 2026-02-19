@@ -32,3 +32,6 @@ keystore.properties
 provisioning-server/node_modules/
 provisioning-server/.env
 provisioning-server/state.json
+
+# Single .env at repo root (copy from .env.example)
+.env

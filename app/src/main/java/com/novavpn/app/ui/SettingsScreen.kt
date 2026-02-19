@@ -27,9 +27,15 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.novavpn.app.viewmodel.SettingsViewModel
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.material3.OutlinedButton
+import android.widget.Toast
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -112,6 +118,9 @@ fun SettingsScreen(
                     ) {
                         Text("Clear cached VPN config")
                     }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val ctx = LocalContext.current
+
                 }
             }
         }

@@ -187,6 +187,75 @@ When the app shows Connected but there’s no internet (or logs show handshake r
 4. **Reload peers after provisioning:**  
    The provisioning server adds the peer with `wg set`; ensure WireGuard is running and the new peer appears in `wg show`.
 
+### VPN shows "Connected" and peer is on server, but no internet
+
+Traffic from the VPN subnet must be **forwarded** and **NAT'd** to the internet. **UFW** must allow forwarding in **both** directions (VPN→internet and replies→VPN).
+
+**Option 1 — Run the fix script on the server:**
+
+```bash
+cd ~/provisioning-server/scripts
+sed -i 's/\r$//' fix-vpn-no-internet.sh   # if you copied from Windows
+sudo bash fix-vpn-no-internet.sh
+```
+
+**Option 2 — Run these commands by hand:**
+
+```bash
+# 1. Enable IP forwarding
+sudo sysctl -w net.ipv4.ip_forward=1
+echo 'net.ipv4.ip_forward=1' | sudo tee -a /etc/sysctl.d/99-wireguard.conf
+
+# 2. Outbound interface (e.g. eth0)
+OUT_IF=$(ip route show default | awk '/default/ {print $5}')
+
+# 3. iptables: allow forward and NAT
+sudo iptables -A FORWARD -i wg0 -j ACCEPT
+sudo iptables -A FORWARD -i $OUT_IF -o wg0 -m state --state RELATED,ESTABLISHED -j ACCEPT
+sudo iptables -t nat -A POSTROUTING -s 10.66.66.0/24 -o $OUT_IF -j MASQUERADE
+
+# 4. UFW: allow forward both ways (often the missing step)
+sudo ufw route allow in on wg0 out on $OUT_IF
+sudo ufw route allow in on $OUT_IF out on wg0
+sudo ufw reload
+```
+
+Then **disconnect and reconnect** in the app; the phone should get internet through the VPN.
+
+### Internet still not working — final checklist
+
+Work through this in order.
+
+**Server (run as root):**
+
+1. **.env** — In `~/provisioning-server/.env` set and save:
+   - `WG_ALLOWED_IPS=0.0.0.0/0,::/0`
+   - `WG_DNS=1.1.1.1`
+   Restart the provisioning process (e.g. `pm2 restart all` or restart `node server.js`).
+
+2. **Forwarding and NAT** — Run the fix script (fixes forwarding, NAT, rp_filter):
+   ```bash
+   cd ~/provisioning-server/scripts && sed -i 's/\r$//' fix-vpn-no-internet.sh && sudo bash fix-vpn-no-internet.sh
+   ```
+
+3. **Relax reverse-path filter** (if not already in the script):
+   ```bash
+   sudo sysctl -w net.ipv4.conf.all.rp_filter=0
+   sudo sysctl -w net.ipv4.conf.default.rp_filter=0
+   ```
+
+4. **Confirm WireGuard** — `wg show` should list your phone as a peer with a recent handshake.
+
+**Phone (app):**
+
+5. **Clear config and reconnect** — In the app: **Settings → Clear cached VPN config**, then **Connect**. The app now forces full tunnel (0.0.0.0/0) even if the server sent something else; a fresh connect applies that.
+
+6. **Test** — With VPN connected, open a site by IP to avoid DNS issues, e.g. in browser: `http://142.250.80.46` (Google). If that works, DNS was the problem; if not, traffic may still not be going through (see tcpdump below).
+
+**Verify traffic on server:**
+
+7. On the server run `tcpdump -i wg0 -n`. On the phone (VPN on) open a webpage. If **no packets** appear, the phone is not sending traffic through the VPN — clear cache again, reconnect, and ensure you’re on the latest app build. If **packets appear** but the phone still has no internet, the issue is server-side forwarding/NAT (re-run the fix script and check for firewall/DROP rules).
+
 ### Handshake never completes — "stopped hearing back"
 
 The phone sends handshake initiations but never gets a reply. Either the server is not replying, or the reply is dropped before it reaches the phone.

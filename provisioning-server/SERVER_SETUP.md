@@ -65,7 +65,7 @@ On the **same machine** as WireGuard:
 
 ```bash
 cd /path/to/nova_vpn/provisioning-server
-cp .env.example .env
+cp ../.env.example .env   # or from repo root: cp .env.example .env
 nano .env   # or vim
 ```
 
