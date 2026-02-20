@@ -18,7 +18,7 @@ android {
         versionName = "1.0.0"
         multiDexEnabled = true
      
-        buildConfigField("String", "PROVISIONING_BASE_URL", "\"http://76.13.189.118:3000\"")
+        buildConfigField("String", "PROVISIONING_BASE_URL", "\"http://76.13.189.118:8000\"")
     }
     flavorDimensions += "app"
     productFlavors {
