@@ -19,9 +19,18 @@ class SettingsViewModel @Inject constructor(
     private val _autoConnect = MutableStateFlow(secureStorage.getAutoConnect())
     val autoConnect: StateFlow<Boolean> = _autoConnect.asStateFlow()
 
+    private val _deviceLabel = MutableStateFlow(secureStorage.getDeviceLabel() ?: "")
+    val deviceLabel: StateFlow<String> = _deviceLabel.asStateFlow()
+
     fun setAutoConnect(value: Boolean) {
         secureStorage.setAutoConnect(value)
         _autoConnect.value = value
+    }
+
+    fun setDeviceLabel(value: String) {
+        val trimmed = value.trim().take(128)
+        secureStorage.setDeviceLabel(trimmed.ifEmpty { null })
+        _deviceLabel.value = trimmed
     }
 
     fun clearCachedVpnConfig() {

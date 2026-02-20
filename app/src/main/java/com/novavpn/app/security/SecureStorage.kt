@@ -41,6 +41,13 @@ class SecureStorage @Inject constructor(
         prefs.edit().putBoolean(KEY_KILL_SWITCH_GUIDANCE, value).apply()
     }
 
+    /** User-defined device label (e.g. "John's Phone") sent to server to identify this device. */
+    fun getDeviceLabel(): String? = prefs.getString(KEY_DEVICE_LABEL, null)?.takeIf { it.isNotBlank() }
+
+    fun setDeviceLabel(value: String?) {
+        prefs.edit().putString(KEY_DEVICE_LABEL, value?.trim()?.take(128) ?: "").apply()
+    }
+
     fun getOpenVpnConfigCache(): String? = prefs.getString(KEY_OPENVPN_CONFIG_CACHE, null)
 
     fun setOpenVpnConfigCache(config: String) {
@@ -83,5 +90,6 @@ class SecureStorage @Inject constructor(
         private const val KEY_AUTO_CONNECT = "auto_connect"
         private const val KEY_ALWAYS_ON_GUIDANCE = "always_on_guidance_shown"
         private const val KEY_KILL_SWITCH_GUIDANCE = "kill_switch_guidance_shown"
+        private const val KEY_DEVICE_LABEL = "device_label"
     }
 }

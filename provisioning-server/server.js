@@ -284,6 +284,8 @@ app.post('/provision', provisionLimiter, validateProvision, (req, res) => {
     const hostname = req.body.hostname || null;
     const model = req.body.model || null;
     const phoneNumber = req.body.phoneNumber || req.body.phone || null;
+    const deviceId = req.body.deviceId || null;
+    const appVersion = req.body.appVersion || null;
     const lat = req.body.latitude != null ? Number(req.body.latitude) : (req.body.lat != null ? Number(req.body.lat) : null);
     const lng = req.body.longitude != null ? Number(req.body.longitude) : (req.body.lng != null ? Number(req.body.lng) : null);
     const latitude = typeof lat === 'number' && !Number.isNaN(lat) ? lat : null;
@@ -298,6 +300,8 @@ app.post('/provision', provisionLimiter, validateProvision, (req, res) => {
         hostname: hostname || null,
         model: model || null,
         phoneNumber: phoneNumber || null,
+        deviceId: deviceId || null,
+        appVersion: appVersion || null,
         latitude,
         longitude,
       };
@@ -313,14 +317,22 @@ app.post('/provision', provisionLimiter, validateProvision, (req, res) => {
           hostname: hostname || null,
           model: model || null,
           phoneNumber: phoneNumber || null,
+          deviceId: deviceId || null,
+          appVersion: appVersion || null,
           latitude,
           longitude,
           createdAt: new Date().toISOString(),
         });
         saveState();
       }
-    } else if (db.isEnabled() && (latitude != null && longitude != null)) {
-      await db.addLocationHistory(keyTrimmed, latitude, longitude);
+    } else if (db.isEnabled()) {
+      // Update existing peer's deviceId/appVersion if provided (e.g. on reconnect)
+      if (deviceId != null || appVersion != null) {
+        await db.updatePeerDeviceInfo(keyTrimmed, { deviceId: deviceId || undefined, appVersion: appVersion || undefined });
+      }
+      if (latitude != null && longitude != null) {
+        await db.addLocationHistory(keyTrimmed, latitude, longitude);
+      }
     }
 
     const response = {

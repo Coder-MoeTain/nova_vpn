@@ -206,6 +206,11 @@ header h1 {
   color: #8b949e;
 }
 
+.peers-table .app-version {
+  font-size: 0.85rem;
+  color: #8b949e;
+}
+
 .peers-table .actions {
   white-space: nowrap;
   position: relative;

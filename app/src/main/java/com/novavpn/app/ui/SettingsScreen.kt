@@ -35,6 +35,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import android.widget.Toast
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,6 +45,7 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = hiltViewModel()
 ) {
     val autoConnect by viewModel.autoConnect.collectAsState(initial = false)
+    val deviceLabel by viewModel.deviceLabel.collectAsState(initial = "")
 
     Column(modifier = Modifier.fillMaxSize()) {
         TopAppBar(
@@ -64,6 +66,26 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp)
         ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Device name", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                    Text("This label is sent to the server so you can identify this device in the admin panel (e.g. \"John's Phone\").", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = deviceLabel,
+                        onValueChange = viewModel::setDeviceLabel,
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("e.g. John's Phone") },
+                        singleLine = true,
+                        maxLines = 1
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),

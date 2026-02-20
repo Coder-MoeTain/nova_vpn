@@ -17,8 +17,25 @@ android {
         versionCode = 1
         versionName = "1.0.0"
         multiDexEnabled = true
-        // OpenVPN provisioning server URL. Use your server's IP or hostname, e.g. "http://76.13.189.118:3000"
+     
         buildConfigField("String", "PROVISIONING_BASE_URL", "\"http://76.13.189.118:3000\"")
+    }
+    flavorDimensions += "app"
+    productFlavors {
+        create("nova") {
+            dimension = "app"
+            applicationIdSuffix = ""
+            versionNameSuffix = ""
+            resValue("string", "app_name", "NovaVPN")
+            resValue("string", "quick_tile_label", "NovaVPN")
+        }
+        create("novaNew") {
+            dimension = "app"
+            applicationIdSuffix = ".new"
+            versionNameSuffix = "-new"
+            resValue("string", "app_name", "NovaVPN New")
+            resValue("string", "quick_tile_label", "NovaVPN New")
+        }
     }
     buildFeatures {
         compose = true

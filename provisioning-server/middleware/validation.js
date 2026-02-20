@@ -19,16 +19,40 @@ const publicKeyValidator = (field = 'publicKey') => {
 };
 
 /**
- * Validates device name (optional, max 64 chars, alphanumeric + spaces/hyphens)
+ * Validates device name (optional, max 128 chars, alphanumeric + spaces/hyphens)
  */
 const deviceNameValidator = () => {
   return body('deviceName')
     .optional()
     .trim()
+    .isLength({ max: 128 })
+    .withMessage('deviceName must be at most 128 characters')
+    .matches(/^[a-zA-Z0-9\s\-_.]+$/)
+    .withMessage('deviceName can only contain letters, numbers, spaces, hyphens, underscores, and periods')
+    .escape();
+};
+
+/**
+ * Validates device ID from app (optional, max 64 chars, e.g. Android ID)
+ */
+const deviceIdValidator = () => {
+  return body('deviceId')
+    .optional()
+    .trim()
     .isLength({ max: 64 })
-    .withMessage('deviceName must be at most 64 characters')
-    .matches(/^[a-zA-Z0-9\s\-_]+$/)
-    .withMessage('deviceName can only contain letters, numbers, spaces, hyphens, and underscores')
+    .withMessage('deviceId must be at most 64 characters')
+    .escape();
+};
+
+/**
+ * Validates app version string (optional, max 64 chars)
+ */
+const appVersionValidator = () => {
+  return body('appVersion')
+    .optional()
+    .trim()
+    .isLength({ max: 64 })
+    .withMessage('appVersion must be at most 64 characters')
     .escape();
 };
 
@@ -161,6 +185,8 @@ const validateProvision = [
   phoneNumberValidator(),
   latitudeValidator(),
   longitudeValidator(),
+  deviceIdValidator(),
+  appVersionValidator(),
   validate
 ];
 

@@ -241,17 +241,19 @@
           const traffic = (p.trafficRx != null && p.trafficTx != null) ? (p.trafficRx + ' / ' + p.trafficTx) : '—';
           const phone = p.phoneNumber || '—';
           const remoteIp = p.remoteIp || p.endpointIp || '—';
+          const appVersion = (p.appVersion && String(p.appVersion).trim()) ? String(p.appVersion).trim() : '—';
           if (isBanned) {
             tr.classList.add('banned-peer');
           }
           tr.innerHTML =
             '<td class="status"><span class="status-dot ' + statusClass + '" title="' + statusText + '"></span> ' + statusText + '</td>' +
-            '<td class="device">' + escapeHtml(deviceName) + '</td>' +
             '<td class="device-override-col">' + (deviceOverride ? escapeHtml(deviceOverride) : '—') + '</td>' +
+            '<td class="device">' + escapeHtml(deviceName) + '</td>' +
             '<td class="phone">' + escapeHtml(phone) + '</td>' +
             '<td class="ip">' + (p.clientIp || '—') + '</td>' +
             '<td class="ip remote-ip">' + escapeHtml(remoteIp) + '</td>' +
             '<td class="location">' + locationCell + '</td>' +
+            '<td class="app-version">' + escapeHtml(appVersion) + '</td>' +
             '<td class="traffic">' + escapeHtml(traffic) + '</td>' +
             '<td class="date">' + formatDate(p.createdAt) + '</td>' +
             '<td class="actions">' +

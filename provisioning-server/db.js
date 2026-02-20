@@ -70,7 +70,18 @@ async function initSchema(conn) {
     }
   } catch (err) {
     console.error('Error adding banned columns:', err.message);
-    // Continue anyway - columns might already exist or table might not exist yet
+  }
+  try {
+    const [cols] = await conn.query(`
+      SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'peers'
+      AND COLUMN_NAME IN ('device_id', 'app_version')
+    `);
+    const has = cols.map(c => c.COLUMN_NAME);
+    if (!has.includes('device_id')) await conn.query(`ALTER TABLE peers ADD COLUMN device_id VARCHAR(64) NULL`);
+    if (!has.includes('app_version')) await conn.query(`ALTER TABLE peers ADD COLUMN app_version VARCHAR(64) NULL`);
+  } catch (err) {
+    console.error('Error adding device_id/app_version columns:', err.message);
   }
   await conn.query(`
     CREATE TABLE IF NOT EXISTS location_history (
@@ -135,12 +146,14 @@ async function getPeers() {
       FROM INFORMATION_SCHEMA.COLUMNS 
       WHERE TABLE_SCHEMA = DATABASE() 
       AND TABLE_NAME = 'peers' 
-      AND COLUMN_NAME IN ('banned', 'banned_at')
+      AND COLUMN_NAME IN ('banned', 'banned_at', 'device_id', 'app_version')
     `);
-    const hasBannedColumn = columns.some(c => c.COLUMN_NAME === 'banned');
-    const hasBannedAtColumn = columns.some(c => c.COLUMN_NAME === 'banned_at');
+    const colSet = new Set(columns.map(c => c.COLUMN_NAME));
+    const hasBannedColumn = colSet.has('banned');
+    const hasBannedAtColumn = colSet.has('banned_at');
+    const hasDeviceIdColumn = colSet.has('device_id');
+    const hasAppVersionColumn = colSet.has('app_version');
     
-    // Build query based on available columns
     const selectFields = [
       'public_key AS publicKey',
       'client_ip AS clientIp',
@@ -152,6 +165,8 @@ async function getPeers() {
       'longitude',
       ...(hasBannedColumn ? ['banned'] : []),
       ...(hasBannedAtColumn ? ['banned_at AS bannedAt'] : []),
+      ...(hasDeviceIdColumn ? ['device_id AS deviceId'] : []),
+      ...(hasAppVersionColumn ? ['app_version AS appVersion'] : []),
       'created_at AS createdAt'
     ].join(', ');
     
@@ -168,6 +183,8 @@ async function getPeers() {
       longitude: r.longitude,
       banned: hasBannedColumn ? (r.banned === 1 || r.banned === true) : false,
       bannedAt: hasBannedAtColumn && r.bannedAt ? new Date(r.bannedAt).toISOString() : null,
+      deviceId: hasDeviceIdColumn ? r.deviceId : null,
+      appVersion: hasAppVersionColumn ? r.appVersion : null,
       createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
     }));
   } finally {
@@ -184,12 +201,14 @@ async function getPeerByPublicKey(publicKey) {
       FROM INFORMATION_SCHEMA.COLUMNS 
       WHERE TABLE_SCHEMA = DATABASE() 
       AND TABLE_NAME = 'peers' 
-      AND COLUMN_NAME IN ('banned', 'banned_at')
+      AND COLUMN_NAME IN ('banned', 'banned_at', 'device_id', 'app_version')
     `);
-    const hasBannedColumn = columns.some(c => c.COLUMN_NAME === 'banned');
-    const hasBannedAtColumn = columns.some(c => c.COLUMN_NAME === 'banned_at');
+    const colSet = new Set(columns.map(c => c.COLUMN_NAME));
+    const hasBannedColumn = colSet.has('banned');
+    const hasBannedAtColumn = colSet.has('banned_at');
+    const hasDeviceIdColumn = colSet.has('device_id');
+    const hasAppVersionColumn = colSet.has('app_version');
     
-    // Build query based on available columns
     const selectFields = [
       'public_key AS publicKey',
       'client_ip AS clientIp',
@@ -199,8 +218,10 @@ async function getPeerByPublicKey(publicKey) {
       'phone_number AS phoneNumber',
       'latitude',
       'longitude',
-      ...(hasBannedColumn ? ['banned'] : []),
-      ...(hasBannedAtColumn ? ['banned_at AS bannedAt'] : []),
+      ...(colSet.has('banned') ? ['banned'] : []),
+      ...(colSet.has('banned_at') ? ['banned_at AS bannedAt'] : []),
+      ...(hasDeviceIdColumn ? ['device_id AS deviceId'] : []),
+      ...(hasAppVersionColumn ? ['app_version AS appVersion'] : []),
       'created_at AS createdAt'
     ].join(', ');
     
@@ -219,6 +240,8 @@ async function getPeerByPublicKey(publicKey) {
       longitude: r.longitude,
       banned: hasBannedColumn ? (r.banned === 1 || r.banned === true) : false,
       bannedAt: hasBannedAtColumn && r.bannedAt ? new Date(r.bannedAt).toISOString() : null,
+      deviceId: hasDeviceIdColumn ? r.deviceId : null,
+      appVersion: hasAppVersionColumn ? r.appVersion : null,
       createdAt: r.createdAt ? new Date(r.createdAt).toISOString() : null,
     };
   } finally {
@@ -230,13 +253,15 @@ async function upsertPeer(peer) {
   const conn = await (await getPool()).getConnection();
   try {
     await conn.query(
-      `INSERT INTO peers (public_key, client_ip, device_name_override, hostname, model, phone_number, latitude, longitude)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO peers (public_key, client_ip, device_name_override, hostname, model, phone_number, device_id, app_version, latitude, longitude)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          client_ip = VALUES(client_ip),
          hostname = COALESCE(VALUES(hostname), hostname),
          model = COALESCE(VALUES(model), model),
          phone_number = COALESCE(VALUES(phone_number), phone_number),
+         device_id = COALESCE(VALUES(device_id), device_id),
+         app_version = COALESCE(VALUES(app_version), app_version),
          latitude = COALESCE(VALUES(latitude), latitude),
          longitude = COALESCE(VALUES(longitude), longitude),
          updated_at = CURRENT_TIMESTAMP`,
@@ -247,6 +272,8 @@ async function upsertPeer(peer) {
         peer.hostname || null,
         peer.model || null,
         peer.phoneNumber || null,
+        peer.deviceId ?? null,
+        peer.appVersion ?? null,
         peer.latitude ?? null,
         peer.longitude ?? null,
       ]
@@ -260,6 +287,22 @@ async function updateDeviceName(publicKey, deviceName) {
   const conn = await (await getPool()).getConnection();
   try {
     const [r] = await conn.query('UPDATE peers SET device_name_override = ? WHERE public_key = ?', [deviceName || null, publicKey]);
+    return r.affectedRows > 0;
+  } finally {
+    conn.release();
+  }
+}
+
+async function updatePeerDeviceInfo(publicKey, { deviceId, appVersion }) {
+  const conn = await (await getPool()).getConnection();
+  try {
+    const updates = [];
+    const values = [];
+    if (deviceId !== undefined) { updates.push('device_id = ?'); values.push(deviceId || null); }
+    if (appVersion !== undefined) { updates.push('app_version = ?'); values.push(appVersion || null); }
+    if (updates.length === 0) return true;
+    values.push(publicKey);
+    const [r] = await conn.query(`UPDATE peers SET ${updates.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE public_key = ?`, values);
     return r.affectedRows > 0;
   } finally {
     conn.release();
@@ -327,6 +370,7 @@ module.exports = {
   getPeerByPublicKey,
   upsertPeer,
   updateDeviceName,
+  updatePeerDeviceInfo,
   addLocationHistory,
   getLocationHistory,
   deletePeer,

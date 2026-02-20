@@ -134,11 +134,14 @@ class ProvisioningApi @Inject constructor() {
 @kotlinx.serialization.Serializable
 data class WireGuardProvisionRequest(
     val publicKey: String,
+    val deviceName: String? = null,
     val hostname: String? = null,
     val model: String? = null,
     val phoneNumber: String? = null,
     val latitude: Double? = null,
-    val longitude: Double? = null
+    val longitude: Double? = null,
+    val deviceId: String? = null,
+    val appVersion: String? = null
 )
 
 @kotlinx.serialization.Serializable

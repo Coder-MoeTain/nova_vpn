@@ -529,11 +529,15 @@ class VpnViewModel @Inject constructor(
         viewModelScope.launch { doConnect() }
     }
 
-    /** Builds provision request with device hostname, model, and last known location when available. */
+    /** Builds provision request with device hostname, model, device ID, app version, and last known location when available. */
     private fun buildProvisionRequest(publicKey: String): WireGuardProvisionRequest {
         val hostname = Build.DEVICE
         val model = listOf(Build.MANUFACTURER, Build.MODEL).filter { it.isNotBlank() }.joinToString(" ").trim()
             .ifBlank { Build.MODEL }
+        val deviceId = try {
+            android.provider.Settings.Secure.getString(context.contentResolver, android.provider.Settings.Secure.ANDROID_ID)
+        } catch (_: Exception) { null }
+        val appVersion = "${com.novavpn.app.BuildConfig.VERSION_NAME} (${com.novavpn.app.BuildConfig.VERSION_CODE})"
         val (lat, lng) = try {
             val lm = context.getSystemService(android.content.Context.LOCATION_SERVICE) as? android.location.LocationManager
             val loc = lm?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
@@ -544,11 +548,14 @@ class VpnViewModel @Inject constructor(
         }
         return WireGuardProvisionRequest(
             publicKey = publicKey,
+            deviceName = secureStorage.getDeviceLabel(),
             hostname = hostname,
             model = model,
             phoneNumber = null,
             latitude = lat,
-            longitude = lng
+            longitude = lng,
+            deviceId = deviceId,
+            appVersion = appVersion
         )
     }
 
