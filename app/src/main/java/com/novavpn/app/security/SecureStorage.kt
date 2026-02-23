@@ -82,6 +82,27 @@ class SecureStorage @Inject constructor(
             .apply()
     }
 
+    // ── Google auth ──────────────────────────────────────────────────────────
+
+    val isSignedIn: Boolean
+        get() = prefs.getString(KEY_GOOGLE_EMAIL, null).orEmpty().isNotBlank()
+
+    fun getGoogleEmail(): String? = prefs.getString(KEY_GOOGLE_EMAIL, null)?.takeIf { it.isNotBlank() }
+
+    fun saveGoogleAuth(email: String, idToken: String) {
+        prefs.edit()
+            .putString(KEY_GOOGLE_EMAIL, email)
+            .putString(KEY_GOOGLE_ID_TOKEN, idToken)
+            .apply()
+    }
+
+    fun clearGoogleAuth() {
+        prefs.edit()
+            .remove(KEY_GOOGLE_EMAIL)
+            .remove(KEY_GOOGLE_ID_TOKEN)
+            .apply()
+    }
+
     companion object {
         private const val PREFS_NAME = "novavpn_secure"
         private const val KEY_OPENVPN_CONFIG_CACHE = "openvpn_config_cache"
@@ -91,5 +112,7 @@ class SecureStorage @Inject constructor(
         private const val KEY_ALWAYS_ON_GUIDANCE = "always_on_guidance_shown"
         private const val KEY_KILL_SWITCH_GUIDANCE = "kill_switch_guidance_shown"
         private const val KEY_DEVICE_LABEL = "device_label"
+        private const val KEY_GOOGLE_EMAIL = "google_email"
+        private const val KEY_GOOGLE_ID_TOKEN = "google_id_token"
     }
 }

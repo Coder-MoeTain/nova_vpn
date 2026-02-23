@@ -13,16 +13,20 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import com.novavpn.app.security.SecureStorage
 import com.novavpn.app.ui.theme.NovaVpnTheme
 import com.novavpn.app.vpn.BootReceiver
 import com.novavpn.app.viewmodel.VpnViewModel
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     private val vpnViewModel: VpnViewModel by viewModels()
+
+    @Inject lateinit var secureStorage: SecureStorage
 
     private val vpnPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -67,7 +71,8 @@ class MainActivity : ComponentActivity() {
                         vpnViewModel = vpnViewModel,
                         tryConnect = { vpnViewModel.connect() },
                         tryDisconnect = { vpnViewModel.disconnect() },
-                        autoConnectRequested = intent?.getBooleanExtra(BootReceiver.EXTRA_AUTO_CONNECT, false) == true
+                        autoConnectRequested = intent?.getBooleanExtra(BootReceiver.EXTRA_AUTO_CONNECT, false) == true,
+                        secureStorage = secureStorage
                     )
                 }
             }

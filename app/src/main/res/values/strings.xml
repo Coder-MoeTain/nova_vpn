@@ -4,4 +4,6 @@
     <string name="quick_tile_label">NovaVPN</string>
     <string name="notification_channel_vpn">VPN Active</string>
     <string name="notification_vpn_running">NovaVPN is connected</string>
+    <!-- Replace with your Web Client ID from Google Cloud Console (OAuth 2.0 → Web application) -->
+    <string name="google_web_client_id">YOUR_WEB_CLIENT_ID.apps.googleusercontent.com</string>
 </resources>
